@@ -298,6 +298,11 @@ def _log_admin_action(
     target_id: int,
     details: dict,
 ) -> None:
+    safe_target_id = max(int(target_id), 0)
+    details_json = json.dumps(details, ensure_ascii=False)
+    if len(details_json) > 4000:
+        details_json = details_json[:4000]
+
     db.execute(
         'INSERT INTO admin_actions(admin_id, action_type, target_type, target_id, details_json, created_at) '
         'VALUES (?, ?, ?, ?, ?, ?)',
@@ -305,8 +310,8 @@ def _log_admin_action(
             admin_id,
             action_type,
             target_type,
-            target_id,
-            json.dumps(details, ensure_ascii=False),
+            safe_target_id,
+            details_json,
             now_iso(),
         ),
     )
