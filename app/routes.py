@@ -1,12 +1,25 @@
 import csv
 import io
-from datetime import datetime
+import json
+from datetime import date
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
 from flask import Blueprint, Response, flash, redirect, render_template, request, url_for
 
 from .auth import current_user, login_required, role_required
 from .db import get_db
+from .utils import ADMIN_ACTION_LABELS
+from .utils import ADMIN_TARGET_LABELS
+from .utils import MEAL_TYPE_LABELS
+from .utils import PAYMENT_STATUS_LABELS
+from .utils import PAYMENT_TYPE_LABELS
+from .utils import REQUEST_STATUS_LABELS
+from .utils import ROLE_LABELS
+from .utils import USER_STATUS_LABELS
+from .utils import format_date_ru
+from .utils import format_datetime_ru
+from .utils import now_iso
+from .utils import now_moscow
 
 routes_bp = Blueprint('routes', __name__)
 
@@ -60,60 +73,87 @@ def _fmt_money(value: Decimal | int | float | str) -> str:
     return _format_decimal(value, places=2, trim_trailing=False)
 
 
-def _decorate_purchase_row(row) -> dict:
-    row_dict = dict(row)
-    qty_dec = Decimal(str(row_dict.get('qty', 0)))
-    unit_price_dec = Decimal(str(row_dict.get('unit_price', 0)))
-    total_dec = qty_dec * unit_price_dec
-
-    row_dict['qty_display'] = _fmt_qty(qty_dec)
-    row_dict['unit_price_display'] = _fmt_money(unit_price_dec)
-    row_dict['total_display'] = _fmt_money(total_dec)
-    return row_dict
+def _default_period() -> tuple[str, str]:
+    today = now_moscow().date()
+    start = today.replace(day=1)
+    return start.isoformat(), today.isoformat()
 
 
-def _decorate_inventory_row(row) -> dict:
-    row_dict = dict(row)
-    row_dict['qty_display'] = _fmt_qty(row_dict.get('qty', 0))
-    return row_dict
+def _resolve_period(raw_from: str | None, raw_to: str | None) -> tuple[str, str, str | None]:
+    default_from, default_to = _default_period()
+    date_from_raw = (raw_from or '').strip()
+    date_to_raw = (raw_to or '').strip()
+
+    if not date_from_raw and not date_to_raw:
+        return default_from, default_to, None
+
+    if not date_from_raw:
+        date_from_raw = default_from
+    if not date_to_raw:
+        date_to_raw = default_to
+
+    try:
+        from_date = date.fromisoformat(date_from_raw)
+        to_date = date.fromisoformat(date_to_raw)
+    except ValueError:
+        return default_from, default_to, 'Некорректный формат периода. Использован период по умолчанию.'
+
+    if from_date > to_date:
+        return default_from, default_to, 'Дата начала больше даты окончания. Использован период по умолчанию.'
+
+    return from_date.isoformat(), to_date.isoformat(), None
 
 
-def _collect_admin_metrics(db) -> dict:
+def _collect_admin_metrics(db, date_from: str, date_to: str) -> dict:
     total_payments_raw = db.execute(
-        'SELECT COALESCE(SUM(amount), 0) AS s FROM payments WHERE status = ?',
-        ('paid',),
+        'SELECT COALESCE(SUM(amount), 0) AS s FROM payments WHERE status = ? '
+        'AND substr(created_at, 1, 10) BETWEEN ? AND ?',
+        ('paid', date_from, date_to),
     ).fetchone()['s']
-    total_claims = db.execute('SELECT COUNT(*) AS c FROM meal_claims').fetchone()['c']
+    total_claims = db.execute(
+        'SELECT COUNT(*) AS c FROM meal_claims WHERE substr(claimed_at, 1, 10) BETWEEN ? AND ?',
+        (date_from, date_to),
+    ).fetchone()['c']
     unique_students_with_claims = db.execute(
-        'SELECT COUNT(DISTINCT user_id) AS c FROM meal_claims'
+        'SELECT COUNT(DISTINCT user_id) AS c FROM meal_claims WHERE substr(claimed_at, 1, 10) BETWEEN ? AND ?',
+        (date_from, date_to),
     ).fetchone()['c']
     total_issues = db.execute(
-        'SELECT COALESCE(SUM(issued_qty), 0) AS c FROM meal_issues'
+        'SELECT COALESCE(SUM(issued_qty), 0) AS c FROM meal_issues '
+        'WHERE substr(issued_at, 1, 10) BETWEEN ? AND ?',
+        (date_from, date_to),
     ).fetchone()['c']
     approved_procurement_cost_raw = db.execute(
         """
         SELECT COALESCE(SUM(qty * unit_price), 0) AS s
         FROM purchase_requests
         WHERE status = ? AND qty > 0 AND unit_price > 0
+          AND substr(created_at, 1, 10) BETWEEN ? AND ?
         """,
-        ('approved',),
+        ('approved', date_from, date_to),
     ).fetchone()['s']
     approved_requests_count = db.execute(
         """
         SELECT COUNT(*) AS c
         FROM purchase_requests
         WHERE status = ? AND qty > 0 AND unit_price > 0
+          AND substr(created_at, 1, 10) BETWEEN ? AND ?
         """,
-        ('approved',),
+        ('approved', date_from, date_to),
     ).fetchone()['c']
 
     total_payments = Decimal(str(total_payments_raw or 0))
     approved_procurement_cost = Decimal(str(approved_procurement_cost_raw or 0))
     operating_balance = total_payments - approved_procurement_cost
-    generated_at = datetime.now().isoformat(timespec='seconds')
+    generated_at = now_iso()
 
     return {
         'generated_at': generated_at,
+        'generated_at_display': format_datetime_ru(generated_at),
+        'period_from': date_from,
+        'period_to': date_to,
+        'period_from_display': format_date_ru(date_from),
+        'period_to_display': format_date_ru(date_to),
         'total_payments_raw': total_payments,
         'total_claims': total_claims,
         'unique_students_with_claims': unique_students_with_claims,
@@ -127,9 +167,159 @@ def _collect_admin_metrics(db) -> dict:
     }
 
 
+def _fetch_report_rows(db, date_from: str, date_to: str) -> list[dict]:
+    rows = db.execute(
+        """
+        SELECT
+            mi.id,
+            mi.title,
+            mi.meal_type,
+            mi.date,
+            (
+                SELECT COUNT(*)
+                FROM meal_claims mc
+                WHERE mc.menu_item_id = mi.id
+                  AND substr(mc.claimed_at, 1, 10) BETWEEN ? AND ?
+            ) AS claims_count,
+            (
+                SELECT COALESCE(SUM(ms.issued_qty), 0)
+                FROM meal_issues ms
+                WHERE ms.menu_item_id = mi.id
+                  AND substr(ms.issued_at, 1, 10) BETWEEN ? AND ?
+            ) AS issued_count,
+            (
+                SELECT COALESCE(AVG(f.rating), 0)
+                FROM feedback f
+                WHERE f.menu_item_id = mi.id
+                  AND substr(f.created_at, 1, 10) BETWEEN ? AND ?
+            ) AS avg_rating
+        FROM menu_items mi
+        WHERE mi.date BETWEEN ? AND ?
+        ORDER BY mi.date DESC, mi.id DESC
+        """,
+        (date_from, date_to, date_from, date_to, date_from, date_to, date_from, date_to),
+    ).fetchall()
+
+    result = []
+    for row in rows:
+        row_dict = dict(row)
+        row_dict['date_display'] = format_date_ru(row_dict.get('date'))
+        row_dict['meal_type_label'] = MEAL_TYPE_LABELS.get(row_dict['meal_type'], row_dict['meal_type'])
+        row_dict['avg_rating_display'] = _fmt_money(row_dict.get('avg_rating', 0))
+        result.append(row_dict)
+    return result
+
+
+def _fetch_meal_type_rows(db, date_from: str, date_to: str) -> list[dict]:
+    rows = db.execute(
+        """
+        SELECT
+            mt.meal_type,
+            (
+                SELECT COUNT(*)
+                FROM meal_claims mc
+                JOIN menu_items m1 ON m1.id = mc.menu_item_id
+                WHERE m1.meal_type = mt.meal_type
+                  AND substr(mc.claimed_at, 1, 10) BETWEEN ? AND ?
+            ) AS total_claims,
+            (
+                SELECT COALESCE(SUM(ms.issued_qty), 0)
+                FROM meal_issues ms
+                JOIN menu_items m2 ON m2.id = ms.menu_item_id
+                WHERE m2.meal_type = mt.meal_type
+                  AND substr(ms.issued_at, 1, 10) BETWEEN ? AND ?
+            ) AS total_issues
+        FROM (
+            SELECT DISTINCT meal_type
+            FROM menu_items
+            WHERE date BETWEEN ? AND ?
+        ) mt
+        ORDER BY mt.meal_type ASC
+        """,
+        (date_from, date_to, date_from, date_to, date_from, date_to),
+    ).fetchall()
+
+    result = []
+    for row in rows:
+        row_dict = dict(row)
+        row_dict['meal_type_label'] = MEAL_TYPE_LABELS.get(row_dict['meal_type'], row_dict['meal_type'])
+        result.append(row_dict)
+    return result
+
+
+def _decorate_purchase_row(row) -> dict:
+    row_dict = dict(row)
+    qty_dec = Decimal(str(row_dict.get('qty', 0)))
+    unit_price_dec = Decimal(str(row_dict.get('unit_price', 0)))
+    total_dec = qty_dec * unit_price_dec
+
+    row_dict['qty_display'] = _fmt_qty(qty_dec)
+    row_dict['unit_price_display'] = _fmt_money(unit_price_dec)
+    row_dict['total_display'] = _fmt_money(total_dec)
+    row_dict['status_label'] = REQUEST_STATUS_LABELS.get(row_dict.get('status'), row_dict.get('status'))
+    row_dict['created_at_display'] = format_datetime_ru(row_dict.get('created_at'))
+    return row_dict
+
+
+def _decorate_inventory_row(row) -> dict:
+    row_dict = dict(row)
+    row_dict['qty_display'] = _fmt_qty(row_dict.get('qty', 0))
+    return row_dict
+
+
+def _decorate_user_row(row) -> dict:
+    row_dict = dict(row)
+    row_dict['role_label'] = ROLE_LABELS.get(row_dict.get('role'), row_dict.get('role'))
+    row_dict['is_active_value'] = int(row_dict.get('is_active', 0))
+    row_dict['status_label'] = USER_STATUS_LABELS.get(row_dict['is_active_value'], 'Неизвестно')
+    row_dict['created_at_display'] = format_datetime_ru(row_dict.get('created_at'))
+    return row_dict
+
+
+def _decorate_admin_action_row(row) -> dict:
+    row_dict = dict(row)
+    row_dict['created_at_display'] = format_datetime_ru(row_dict.get('created_at'))
+    row_dict['action_label'] = ADMIN_ACTION_LABELS.get(row_dict.get('action_type'), row_dict.get('action_type'))
+    row_dict['target_type_label'] = ADMIN_TARGET_LABELS.get(row_dict.get('target_type'), row_dict.get('target_type'))
+    try:
+        details = json.loads(row_dict.get('details_json') or '{}')
+    except json.JSONDecodeError:
+        details = {'raw': row_dict.get('details_json', '')}
+    row_dict['details_pretty'] = json.dumps(details, ensure_ascii=False)
+    return row_dict
+
+
+def _log_admin_action(
+    db,
+    *,
+    admin_id: int,
+    action_type: str,
+    target_type: str,
+    target_id: int,
+    details: dict,
+) -> None:
+    db.execute(
+        'INSERT INTO admin_actions(admin_id, action_type, target_type, target_id, details_json, created_at) '
+        'VALUES (?, ?, ?, ?, ?, ?)',
+        (
+            admin_id,
+            action_type,
+            target_type,
+            target_id,
+            json.dumps(details, ensure_ascii=False),
+            now_iso(),
+        ),
+    )
+
+
 @routes_bp.app_context_processor
 def inject_user():
-    return {'current_user': current_user()}
+    return {
+        'current_user': current_user(),
+        'role_labels': ROLE_LABELS,
+        'request_status_labels': REQUEST_STATUS_LABELS,
+        'meal_type_labels': MEAL_TYPE_LABELS,
+    }
 
 
 @routes_bp.route('/')
@@ -148,6 +338,7 @@ def index():
 def student_dashboard():
     student = current_user()
     db = get_db()
+
     menu_rows = db.execute(
         'SELECT * FROM menu_items ORDER BY date DESC, meal_type ASC, id DESC'
     ).fetchall()
@@ -155,35 +346,53 @@ def student_dashboard():
     for row in menu_rows:
         row_dict = dict(row)
         row_dict['price_display'] = _fmt_money(row_dict['price'])
+        row_dict['date_display'] = format_date_ru(row_dict['date'])
+        row_dict['meal_type_label'] = MEAL_TYPE_LABELS.get(row_dict['meal_type'], row_dict['meal_type'])
         menu_items.append(row_dict)
 
-    payments = db.execute(
+    payments_rows = db.execute(
         'SELECT * FROM payments WHERE user_id = ? ORDER BY created_at DESC',
         (student['id'],),
     ).fetchall()
-    decorated_payments = []
-    for row in payments:
+    payments = []
+    for row in payments_rows:
         row_dict = dict(row)
         row_dict['amount_display'] = _fmt_money(row_dict['amount'])
-        decorated_payments.append(row_dict)
+        row_dict['payment_type_label'] = PAYMENT_TYPE_LABELS.get(row_dict['payment_type'], row_dict['payment_type'])
+        row_dict['status_label'] = PAYMENT_STATUS_LABELS.get(row_dict['status'], row_dict['status'])
+        row_dict['created_at_display'] = format_datetime_ru(row_dict['created_at'])
+        payments.append(row_dict)
 
-    claims = db.execute(
+    claims_rows = db.execute(
         'SELECT mc.id, mc.claimed_at, mi.title, mi.meal_type '
         'FROM meal_claims mc JOIN menu_items mi ON mc.menu_item_id = mi.id '
         'WHERE mc.user_id = ? ORDER BY mc.claimed_at DESC',
         (student['id'],),
     ).fetchall()
-    feedback_list = db.execute(
+    claims = []
+    for row in claims_rows:
+        row_dict = dict(row)
+        row_dict['claimed_at_display'] = format_datetime_ru(row_dict['claimed_at'])
+        row_dict['meal_type_label'] = MEAL_TYPE_LABELS.get(row_dict['meal_type'], row_dict['meal_type'])
+        claims.append(row_dict)
+
+    feedback_rows = db.execute(
         'SELECT f.id, f.rating, f.comment, mi.title, f.created_at '
         'FROM feedback f JOIN menu_items mi ON f.menu_item_id = mi.id '
         'WHERE f.user_id = ? ORDER BY f.created_at DESC',
         (student['id'],),
     ).fetchall()
+    feedback_list = []
+    for row in feedback_rows:
+        row_dict = dict(row)
+        row_dict['created_at_display'] = format_datetime_ru(row_dict['created_at'])
+        feedback_list.append(row_dict)
+
     return render_template(
         'student/dashboard.html',
         student=student,
         menu_items=menu_items,
-        payments=decorated_payments,
+        payments=payments,
         claims=claims,
         feedback_list=feedback_list,
     )
@@ -237,7 +446,7 @@ def student_pay():
             payment_type,
             float(amount),
             'paid',
-            datetime.now().isoformat(timespec='seconds'),
+            now_iso(),
         ),
     )
     db.commit()
@@ -273,7 +482,7 @@ def student_claim():
 
     db.execute(
         'INSERT INTO meal_claims(user_id, menu_item_id, claimed_at) VALUES (?, ?, ?)',
-        (current_user()['id'], menu_item_id, datetime.now().isoformat(timespec='seconds')),
+        (current_user()['id'], menu_item_id, now_iso()),
     )
     db.execute(
         'UPDATE menu_items SET available_qty = available_qty - 1 WHERE id = ? AND available_qty > 0',
@@ -312,7 +521,7 @@ def student_feedback():
             menu_item_id,
             rating,
             comment,
-            datetime.now().isoformat(timespec='seconds'),
+            now_iso(),
         ),
     )
     db.commit()
@@ -329,6 +538,8 @@ def cook_dashboard():
     for row in menu_rows:
         row_dict = dict(row)
         row_dict['price_display'] = _fmt_money(row_dict['price'])
+        row_dict['date_display'] = format_date_ru(row_dict['date'])
+        row_dict['meal_type_label'] = MEAL_TYPE_LABELS.get(row_dict['meal_type'], row_dict['meal_type'])
         menu_items.append(row_dict)
 
     inventory_rows = db.execute('SELECT * FROM inventory ORDER BY product_name ASC').fetchall()
@@ -340,12 +551,18 @@ def cook_dashboard():
     ).fetchall()
     requests = [_decorate_purchase_row(row) for row in request_rows]
 
-    issues = db.execute(
+    issues_rows = db.execute(
         'SELECT mi.title, ms.issued_qty, ms.issue_note, ms.issued_at '
         'FROM meal_issues ms JOIN menu_items mi ON mi.id = ms.menu_item_id '
         'WHERE ms.cook_id = ? ORDER BY ms.issued_at DESC',
         (current_user()['id'],),
     ).fetchall()
+    issues = []
+    for row in issues_rows:
+        row_dict = dict(row)
+        row_dict['issued_at_display'] = format_datetime_ru(row_dict['issued_at'])
+        issues.append(row_dict)
+
     low_stock = [
         row for row in inventory if Decimal(str(row['qty'])) < LOW_STOCK_THRESHOLD
     ]
@@ -403,7 +620,7 @@ def cook_issue():
             menu_item_id,
             issued_qty,
             issue_note,
-            datetime.now().isoformat(timespec='seconds'),
+            now_iso(),
         ),
     )
     db.execute('UPDATE inventory SET qty = qty - ? WHERE id = ?', (float(required_units), inventory_id))
@@ -499,7 +716,7 @@ def cook_purchase_request():
             float(qty),
             float(unit_price),
             reason,
-            datetime.now().isoformat(timespec='seconds'),
+            now_iso(),
         ),
     )
     db.commit()
@@ -510,44 +727,30 @@ def cook_purchase_request():
 @routes_bp.route('/admin/dashboard')
 @role_required('admin')
 def admin_dashboard():
+    date_from, date_to, period_error = _resolve_period(
+        request.args.get('date_from'),
+        request.args.get('date_to'),
+    )
+    if period_error:
+        flash(period_error)
+
     db = get_db()
-    metrics = _collect_admin_metrics(db)
+    metrics = _collect_admin_metrics(db, date_from, date_to)
+
     purchase_request_rows = db.execute(
         'SELECT pr.*, u.name AS cook_name FROM purchase_requests pr '
         'JOIN users u ON u.id = pr.cook_id ORDER BY pr.created_at DESC'
     ).fetchall()
     purchase_requests = [_decorate_purchase_row(row) for row in purchase_request_rows]
 
-    report_rows = db.execute(
-        """
-        SELECT
-            mi.title,
-            mi.meal_type,
-            COUNT(mc.id) AS claims_count,
-            COALESCE(SUM(ms.issued_qty), 0) AS issued_count,
-            COALESCE(AVG(f.rating), 0) AS avg_rating
-        FROM menu_items mi
-        LEFT JOIN meal_claims mc ON mc.menu_item_id = mi.id
-        LEFT JOIN meal_issues ms ON ms.menu_item_id = mi.id
-        LEFT JOIN feedback f ON f.menu_item_id = mi.id
-        GROUP BY mi.id
-        ORDER BY mi.date DESC, mi.id DESC
-        """
-    ).fetchall()
+    report_rows = _fetch_report_rows(db, date_from, date_to)
+    meal_type_rows = _fetch_meal_type_rows(db, date_from, date_to)
 
-    meal_type_rows = db.execute(
-        """
-        SELECT
-            mi.meal_type,
-            COUNT(DISTINCT mc.id) AS total_claims,
-            COALESCE(SUM(ms.issued_qty), 0) AS total_issues
-        FROM menu_items mi
-        LEFT JOIN meal_claims mc ON mc.menu_item_id = mi.id
-        LEFT JOIN meal_issues ms ON ms.menu_item_id = mi.id
-        GROUP BY mi.meal_type
-        ORDER BY mi.meal_type ASC
-        """
+    action_rows = db.execute(
+        'SELECT aa.*, u.name AS admin_name FROM admin_actions aa '
+        'JOIN users u ON u.id = aa.admin_id ORDER BY aa.created_at DESC LIMIT 20'
     ).fetchall()
+    admin_actions = [_decorate_admin_action_row(row) for row in action_rows]
 
     return render_template(
         'admin/dashboard.html',
@@ -559,9 +762,14 @@ def admin_dashboard():
         approved_procurement_cost=metrics['approved_procurement_cost'],
         approved_requests_count=metrics['approved_requests_count'],
         operating_balance=metrics['operating_balance'],
-        report_generated_at=metrics['generated_at'],
+        report_generated_at=metrics['generated_at_display'],
         report_rows=report_rows,
         meal_type_rows=meal_type_rows,
+        period_from=date_from,
+        period_to=date_to,
+        period_from_display=metrics['period_from_display'],
+        period_to_display=metrics['period_to_display'],
+        admin_actions=admin_actions,
     )
 
 
@@ -569,9 +777,10 @@ def admin_dashboard():
 @role_required('admin')
 def admin_users():
     db = get_db()
-    users = db.execute(
+    users_rows = db.execute(
         'SELECT id, name, email, role, is_active, created_at FROM users ORDER BY id ASC'
     ).fetchall()
+    users = [_decorate_user_row(row) for row in users_rows]
     return render_template('admin/users.html', users=users)
 
 
@@ -585,7 +794,7 @@ def admin_update_user_role(user_id: int):
 
     db = get_db()
     target_user = db.execute(
-        'SELECT id, role FROM users WHERE id = ?',
+        'SELECT id, role, name FROM users WHERE id = ?',
         (user_id,),
     ).fetchone()
     if target_user is None:
@@ -597,7 +806,24 @@ def admin_update_user_role(user_id: int):
         flash('Нельзя понизить собственную роль текущей сессии.')
         return redirect(url_for('routes.admin_users'))
 
+    old_role = target_user['role']
+    if old_role == new_role:
+        flash('Роль пользователя не изменилась.')
+        return redirect(url_for('routes.admin_users'))
+
     db.execute('UPDATE users SET role = ? WHERE id = ?', (new_role, user_id))
+    _log_admin_action(
+        db,
+        admin_id=current_user()['id'],
+        action_type='user_role_changed',
+        target_type='user',
+        target_id=user_id,
+        details={
+            'пользователь': target_user['name'],
+            'было': ROLE_LABELS.get(old_role, old_role),
+            'стало': ROLE_LABELS.get(new_role, new_role),
+        },
+    )
     db.commit()
     flash('Роль пользователя обновлена.')
     return redirect(url_for('routes.admin_users'))
@@ -613,7 +839,7 @@ def admin_block_user(user_id: int):
 
     db = get_db()
     target_user = db.execute(
-        'SELECT id, is_active FROM users WHERE id = ?',
+        'SELECT id, is_active, name FROM users WHERE id = ?',
         (user_id,),
     ).fetchone()
     if target_user is None:
@@ -625,8 +851,25 @@ def admin_block_user(user_id: int):
         flash('Нельзя заблокировать собственный аккаунт.')
         return redirect(url_for('routes.admin_users'))
 
+    old_state = int(target_user['is_active'])
     next_state = 0 if action == 'block' else 1
+    if old_state == next_state:
+        flash('Статус пользователя не изменился.')
+        return redirect(url_for('routes.admin_users'))
+
     db.execute('UPDATE users SET is_active = ? WHERE id = ?', (next_state, user_id))
+    _log_admin_action(
+        db,
+        admin_id=current_user()['id'],
+        action_type='user_block_state_changed',
+        target_type='user',
+        target_id=user_id,
+        details={
+            'пользователь': target_user['name'],
+            'было': USER_STATUS_LABELS.get(old_state, str(old_state)),
+            'стало': USER_STATUS_LABELS.get(next_state, str(next_state)),
+        },
+    )
     db.commit()
     flash('Статус пользователя обновлен.')
     return redirect(url_for('routes.admin_users'))
@@ -635,56 +878,57 @@ def admin_block_user(user_id: int):
 @routes_bp.route('/admin/report.csv')
 @role_required('admin')
 def admin_report_csv():
+    date_from, date_to, _period_error = _resolve_period(
+        request.args.get('date_from'),
+        request.args.get('date_to'),
+    )
+
     db = get_db()
-    metrics = _collect_admin_metrics(db)
+    metrics = _collect_admin_metrics(db, date_from, date_to)
+    report_rows = _fetch_report_rows(db, date_from, date_to)
+    meal_type_rows = _fetch_meal_type_rows(db, date_from, date_to)
 
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(['section', 'metric', 'value'])
-    writer.writerow(['meta', 'generated_at', metrics['generated_at']])
-    writer.writerow(['payments', 'total_paid', _fmt_money(metrics['total_payments_raw'])])
-    writer.writerow(['attendance', 'total_claims', metrics['total_claims']])
-    writer.writerow(
-        ['attendance', 'unique_students_with_claims', metrics['unique_students_with_claims']]
-    )
-    writer.writerow(['issuance', 'total_issues', metrics['total_issues']])
-    writer.writerow(
-        ['procurement', 'approved_requests_count', metrics['approved_requests_count']]
-    )
-    writer.writerow(
-        ['procurement', 'approved_procurement_cost', _fmt_money(metrics['approved_procurement_cost_raw'])]
-    )
-    writer.writerow(['finance', 'operating_balance', _fmt_money(metrics['operating_balance_raw'])])
+    output = io.StringIO(newline='')
+    writer = csv.writer(output, delimiter=';')
+    writer.writerow(['Раздел', 'Метрика', 'Значение'])
+    writer.writerow(['Параметры', 'Сформирован', metrics['generated_at_display']])
+    writer.writerow(['Параметры', 'Период с', metrics['period_from_display']])
+    writer.writerow(['Параметры', 'Период по', metrics['period_to_display']])
+    writer.writerow(['Оплаты', 'Сумма оплат', _fmt_money(metrics['total_payments_raw'])])
+    writer.writerow(['Посещаемость', 'Количество получений', metrics['total_claims']])
+    writer.writerow(['Посещаемость', 'Уникальных учеников', metrics['unique_students_with_claims']])
+    writer.writerow(['Выдача', 'Выдано порций', metrics['total_issues']])
+    writer.writerow(['Закупки', 'Одобренных заявок', metrics['approved_requests_count']])
+    writer.writerow(['Закупки', 'Сумма затрат', _fmt_money(metrics['approved_procurement_cost_raw'])])
+    writer.writerow(['Финансы', 'Баланс', _fmt_money(metrics['operating_balance_raw'])])
 
-    report_rows = db.execute(
-        """
-        SELECT
-            mi.title,
-            mi.meal_type,
-            COUNT(mc.id) AS claims_count,
-            COALESCE(SUM(ms.issued_qty), 0) AS issued_count,
-            COALESCE(AVG(f.rating), 0) AS avg_rating
-        FROM menu_items mi
-        LEFT JOIN meal_claims mc ON mc.menu_item_id = mi.id
-        LEFT JOIN meal_issues ms ON ms.menu_item_id = mi.id
-        LEFT JOIN feedback f ON f.menu_item_id = mi.id
-        GROUP BY mi.id
-        ORDER BY mi.date DESC, mi.id DESC
-        """
-    ).fetchall()
     writer.writerow([])
-    writer.writerow(['meal_title', 'meal_type', 'claims_count', 'issued_count', 'avg_rating'])
+    writer.writerow(['Отчет по блюдам'])
+    writer.writerow(['Дата', 'Блюдо', 'Тип', 'Получений', 'Выдач', 'Средняя оценка'])
     for row in report_rows:
         writer.writerow(
-            [row['title'], row['meal_type'], row['claims_count'], row['issued_count'], _fmt_money(row['avg_rating'])]
+            [
+                row['date_display'],
+                row['title'],
+                row['meal_type_label'],
+                row['claims_count'],
+                row['issued_count'],
+                row['avg_rating_display'],
+            ]
         )
 
-    csv_data = output.getvalue()
-    safe_stamp = metrics['generated_at'].replace(':', '-')
+    writer.writerow([])
+    writer.writerow(['Сводка по типам питания'])
+    writer.writerow(['Тип', 'Получений', 'Выдач'])
+    for row in meal_type_rows:
+        writer.writerow([row['meal_type_label'], row['total_claims'], row['total_issues']])
+
+    csv_data = '\ufeff' + output.getvalue()
+    safe_stamp = metrics['generated_at'].replace(':', '-').replace('+', '_')
     return Response(
         csv_data,
         mimetype='text/csv; charset=utf-8',
-        headers={'Content-Disposition': f'attachment; filename=admin_report_{safe_stamp}.csv'},
+        headers={'Content-Disposition': f'attachment; filename=otchet_admin_{safe_stamp}.csv'},
     )
 
 
@@ -698,7 +942,7 @@ def admin_update_request(request_id: int):
 
     db = get_db()
     req = db.execute(
-        'SELECT id, unit_price, qty FROM purchase_requests WHERE id = ?',
+        'SELECT id, unit_price, qty, status, product_name FROM purchase_requests WHERE id = ?',
         (request_id,),
     ).fetchone()
     if req is None:
@@ -711,9 +955,22 @@ def admin_update_request(request_id: int):
             flash('Нельзя одобрить заявку с невалидной ценой или количеством.')
             return redirect(url_for('routes.admin_dashboard'))
 
+    old_status = req['status']
     db.execute(
         'UPDATE purchase_requests SET status = ?, reviewed_by = ? WHERE id = ?',
         (new_status, current_user()['id'], request_id),
+    )
+    _log_admin_action(
+        db,
+        admin_id=current_user()['id'],
+        action_type='purchase_request_status_changed',
+        target_type='purchase_request',
+        target_id=request_id,
+        details={
+            'продукт': req['product_name'],
+            'было': REQUEST_STATUS_LABELS.get(old_status, old_status),
+            'стало': REQUEST_STATUS_LABELS.get(new_status, new_status),
+        },
     )
     db.commit()
     flash('Статус заявки обновлен.')
