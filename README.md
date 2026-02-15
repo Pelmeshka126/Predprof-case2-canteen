@@ -1,34 +1,40 @@
-# Predprof 2025/2026 - Кейс №2 «Управление столовой»
+# Предпроф 2025/2026 — Кейс №2 «Управление столовой»
 
-Веб-приложение для практического тура (профиль «Информационные технологии») на стеке `Flask + SQLite + server-rendered templates`.
+Веб-приложение для практического тура профиля «Информационные технологии».
 
-## Реализовано
+## Что реализовано
 
-- Роли и доступ:
-  - публичная регистрация только для `student`;
-  - админ-управление пользователями: просмотр, смена роли, блокировка/разблокировка;
-  - проверка активности пользователя (`is_active`) при логине и доступе;
-  - стабильные ответы `403` для запретных маршрутов.
-- Безопасность:
-  - единый CSRF token в сессии;
-  - валидация CSRF для всех POST-роутов.
-- Ученик:
-  - профиль питания (аллергии/предпочтения), меню, отметка получения,
-  - оплата (демо), отзывы.
-- Повар:
-  - учет выдачи, контроль остатков, ручная корректировка склада,
-  - заявки на закупку с валидируемыми `qty` и `unit_price`.
-- Администратор:
-  - согласование заявок,
-  - сводная статистика,
-  - отчет в интерфейсе,
-  - экспорт отчета в CSV (`/admin/report.csv`).
-- Числа и legacy-данные:
-  - `Decimal`-валидация, запрет `e/E`, `NaN`, `inf`, лимиты диапазонов;
-  - форматированные отображения без scientific notation;
-  - политика legacy: `approved + unit_price=0` => `rejected` с системной пометкой.
+- Полная ролевая модель: ученик, повар, администратор.
+- Публичная саморегистрация только для роли «Ученик».
+- Админ-управление пользователями: смена ролей, блокировка/разблокировка.
+- CSRF-защита всех POST-форм.
+- Жесткая числовая валидация (`Decimal`, запрет экспоненты, `NaN`, `inf`, лимиты).
+- Форматирование чисел без scientific notation.
+- Legacy-нормализация заявок (`approved + unit_price=0` -> `rejected`).
+- Версионные idempotent-миграции (`schema_migrations`).
+- Лог аудита админ-действий (`admin_actions`).
+- Админ-отчет с фильтром периода `date_from/date_to`.
+- Экспорт отчета в CSV (UTF-8 BOM, `;`, период и timestamp).
+- Русифицированный интерфейс и единый формат времени `DD.MM.YYYY HH:MM:SS`.
+- Визуальные скриншоты 5 брейкпоинтов в `output/playwright_v3/`.
 
-## Быстрый запуск (WSL/Linux)
+## Технологии
+
+- Python 3.12+
+- Flask 3
+- SQLite
+- Jinja2
+- Playwright (для browser debug loop)
+
+## Быстрый запуск
+
+### Вариант 1 (рекомендуется)
+
+```bash
+./scripts/run_local.sh
+```
+
+### Вариант 2 (ручной)
 
 ```bash
 python3 -m venv .venv
@@ -37,13 +43,19 @@ pip install -r requirements.txt
 python3 app.py
 ```
 
-Открыть: `http://127.0.0.1:5000/login`
+Открыть в браузере: `http://127.0.0.1:5000/login`
+
+## Переменные окружения
+
+- `SECRET_KEY` — секрет Flask (по умолчанию `predprof-dev-secret-key`)
+- `DATABASE` — путь к SQLite БД (по умолчанию `predprof_case2.db`)
+- `FLASK_DEBUG` — режим debug (`0/1`, по умолчанию `0`)
 
 ## Демо-аккаунты
 
-- `admin@predprof.local / admin123`
-- `cook@predprof.local / cook123`
-- `student@predprof.local / student123`
+- Администратор: `admin@predprof.local / admin123`
+- Повар: `cook@predprof.local / cook123`
+- Ученик: `student@predprof.local / student123`
 
 ## Тесты
 
@@ -51,22 +63,32 @@ python3 app.py
 python -m unittest discover -s tests -v
 ```
 
-Текущий набор: 15 интеграционных тестов (`tests/test_case2_app.py`).
+Текущее покрытие: 32 интеграционных теста (`tests/test_case2_app.py`).
+
+## Визуальная проверка
+
+1. Запустить приложение.
+2. Выполнить:
+
+```bash
+LD_LIBRARY_PATH="$(pwd)/.localdeps/usr/lib/x86_64-linux-gnu:${LD_LIBRARY_PATH}" python3 scripts/visual_debug_loop.py
+```
+
+Скриншоты сохраняются в `output/playwright_v3/`.
 
 ## Структура проекта
 
 - `app.py` — точка входа
-- `app/__init__.py` — app factory, CSRF, обработчик 403
-- `app/auth.py` — регистрация/вход/доступ
-- `app/routes.py` — бизнес-логика по ролям, отчеты, CSV
-- `app/db.py` — схема, миграционно-безопасная инициализация, legacy-normalization
+- `app/__init__.py` — factory, CSRF, обработчик 403, env-конфиг
+- `app/auth.py` — регистрация/вход/выход
+- `app/routes.py` — бизнес-логика, отчеты, CSV, аудит
+- `app/db.py` — схема, миграции, нормализация, seed
+- `app/utils.py` — локализация ролей/статусов, форматирование дат/времени
 - `app/templates/` — UI
+- `scripts/run_local.sh` — стандартный локальный запуск
+- `scripts/visual_debug_loop.py` — browser debug loop и скриншоты
 - `tests/test_case2_app.py` — интеграционные тесты
-- `docs/full_case_text.md` — полный текст кейса
-- `docs/case2_coverage.md` — покрытие требований
-- `docs/demo_script.md` — сценарий видео-демо
-- `docs/test_protocol.md` — протокол ручного тестирования
-- `docs/official_requirements.md` — оргданные и источники
+- `docs/` — пакет документов для сдачи
 
 ## Репозиторий
 
