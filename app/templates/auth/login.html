@@ -1,17 +1,17 @@
 {% extends "base.html" %}
-{% block title %}Вход{% endblock %}
+{% block title %}Вход в систему{% endblock %}
 {% block content %}
 <div class="card" style="max-width:520px;margin:0 auto;">
   <h2>Вход</h2>
   <form method="post">
     <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <label>Email</label>
+    <label>Электронная почта</label>
     <input type="email" name="email" required>
     <label>Пароль</label>
     <input type="password" name="password" required>
     <button type="submit">Войти</button>
   </form>
-  <p><small>Демо-аккаунты: admin@predprof.local/admin123, cook@predprof.local/cook123, student@predprof.local/student123</small></p>
-  <p><a href="{{ url_for('auth.register') }}">Нет аккаунта? Регистрация</a></p>
+  <p><small>Демо-аккаунты: Администратор — admin@predprof.local/admin123, Повар — cook@predprof.local/cook123, Ученик — student@predprof.local/student123</small></p>
+  <p><a href="{{ url_for('auth.register') }}">Нет аккаунта? Зарегистрироваться</a></p>
 </div>
 {% endblock %}

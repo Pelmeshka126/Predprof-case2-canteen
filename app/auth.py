@@ -1,10 +1,10 @@
 from functools import wraps
-from datetime import datetime
 
 from flask import Blueprint, abort, flash, redirect, render_template, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 from .db import get_db
+from .utils import now_iso
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -74,7 +74,7 @@ def register():
         db = get_db()
         exists = db.execute('SELECT id FROM users WHERE email = ?', (email,)).fetchone()
         if exists:
-            flash('Email уже занят.')
+            flash('Электронная почта уже занята.')
             return render_template('auth/register.html')
 
         db.execute(
@@ -86,7 +86,7 @@ def register():
                 generate_password_hash(password),
                 'student',
                 1,
-                datetime.now().isoformat(timespec='seconds'),
+                now_iso(),
             ),
         )
         db.commit()
@@ -106,7 +106,7 @@ def login():
         user = db.execute('SELECT * FROM users WHERE email = ?', (email,)).fetchone()
 
         if user is None or not check_password_hash(user['password_hash'], password):
-            flash('Неверный email или пароль.')
+            flash('Неверная электронная почта или пароль.')
             return render_template('auth/login.html')
         if int(user['is_active']) == 0:
             flash('Пользователь заблокирован администратором.')
