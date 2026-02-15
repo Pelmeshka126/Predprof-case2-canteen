@@ -1,3 +1,4 @@
+import os
 import secrets
 
 from flask import Flask
@@ -13,8 +14,11 @@ from .routes import routes_bp
 
 def create_app(test_config: dict | None = None) -> Flask:
     app = Flask(__name__)
-    app.config['SECRET_KEY'] = 'predprof-dev-secret-key'
-    app.config['DATABASE'] = 'predprof_case2.db'
+    debug_raw = os.getenv('FLASK_DEBUG', '0').strip().lower()
+    debug_enabled = debug_raw in {'1', 'true', 'yes', 'on'}
+    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'predprof-dev-secret-key')
+    app.config['DATABASE'] = os.getenv('DATABASE', 'predprof_case2.db')
+    app.config['DEBUG'] = debug_enabled
     if test_config:
         app.config.update(test_config)
 
