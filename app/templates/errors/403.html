@@ -3,7 +3,7 @@
 {% block content %}
 <div class="card" style="max-width:640px;margin:0 auto;">
   <h2>Доступ запрещен (403)</h2>
-  <p>Недостаточно прав или запрос сформирован некорректно.</p>
+  <p>{{ forbidden_reason or 'Недостаточно прав или запрос сформирован некорректно.' }}</p>
   <p><a href="{{ url_for('routes.index') }}">Вернуться на главную</a></p>
 </div>
 {% endblock %}

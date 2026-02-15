@@ -3,6 +3,7 @@ import secrets
 
 from flask import Flask
 from flask import abort
+from flask import g
 from flask import render_template
 from flask import request
 from flask import session
@@ -36,6 +37,9 @@ def create_app(test_config: dict | None = None) -> Flask:
         session_token = session.get('csrf_token')
         request_token = request.form.get('csrf_token', '')
         if not session_token or not request_token or request_token != session_token:
+            g.forbidden_reason = (
+                'Сессия формы устарела. Обновите страницу и повторите действие.'
+            )
             abort(403)
 
     @app.context_processor
@@ -44,7 +48,8 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     @app.errorhandler(403)
     def _forbidden(_error):
-        return render_template('errors/403.html'), 403
+        reason = getattr(g, 'forbidden_reason', None)
+        return render_template('errors/403.html', forbidden_reason=reason), 403
 
     init_app_db(app)
     app.teardown_appcontext(close_db)
