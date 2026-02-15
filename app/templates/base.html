@@ -54,7 +54,8 @@
     .table-wrap {
       width: 100%;
       overflow-x: auto;
-      overflow-y: hidden;
+      overflow-y: auto;
+      max-height: 420px;
       border: 1px solid var(--border);
       border-radius: 10px;
       background: #fff;
@@ -102,6 +103,7 @@
       table, thead, tbody, tr, td, th { font-size: 12px; }
       .table-wrap table { min-width: 640px; }
       .table-wrap--wide table { min-width: 860px; }
+      .table-wrap { max-height: 360px; }
     }
   </style>
 </head>
