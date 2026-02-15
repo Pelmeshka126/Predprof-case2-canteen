@@ -4,18 +4,14 @@
 <div class="card" style="max-width:520px;margin:0 auto;">
   <h2>Регистрация</h2>
   <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
     <label>Имя</label>
     <input name="name" required>
     <label>Email</label>
     <input type="email" name="email" required>
     <label>Пароль</label>
     <input type="password" name="password" required>
-    <label>Роль</label>
-    <select name="role">
-      <option value="student">Ученик</option>
-      <option value="cook">Повар</option>
-      <option value="admin">Администратор</option>
-    </select>
+    <small>Саморегистрация доступна только для роли «Ученик».</small>
     <button type="submit">Зарегистрироваться</button>
   </form>
   <p><a href="{{ url_for('auth.login') }}">Уже есть аккаунт? Войти</a></p>

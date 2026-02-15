@@ -1,4 +1,10 @@
+import secrets
+
 from flask import Flask
+from flask import abort
+from flask import render_template
+from flask import request
+from flask import session
 
 from .auth import auth_bp
 from .db import close_db, init_app_db
@@ -11,6 +17,30 @@ def create_app(test_config: dict | None = None) -> Flask:
     app.config['DATABASE'] = 'predprof_case2.db'
     if test_config:
         app.config.update(test_config)
+
+    def _ensure_csrf_token() -> str:
+        token = session.get('csrf_token')
+        if not token:
+            token = secrets.token_urlsafe(32)
+            session['csrf_token'] = token
+        return token
+
+    @app.before_request
+    def _validate_csrf_for_post() -> None:
+        if request.method != 'POST':
+            return
+        session_token = session.get('csrf_token')
+        request_token = request.form.get('csrf_token', '')
+        if not session_token or not request_token or request_token != session_token:
+            abort(403)
+
+    @app.context_processor
+    def _inject_csrf():
+        return {'csrf_token': _ensure_csrf_token()}
+
+    @app.errorhandler(403)
+    def _forbidden(_error):
+        return render_template('errors/403.html'), 403
 
     init_app_db(app)
     app.teardown_appcontext(close_db)
