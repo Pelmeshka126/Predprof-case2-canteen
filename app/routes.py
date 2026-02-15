@@ -1,7 +1,9 @@
+import csv
+import io
 from datetime import datetime
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 
-from flask import Blueprint, flash, redirect, render_template, request, url_for
+from flask import Blueprint, Response, flash, redirect, render_template, request, url_for
 
 from .auth import current_user, login_required, role_required
 from .db import get_db
@@ -74,6 +76,55 @@ def _decorate_inventory_row(row) -> dict:
     row_dict = dict(row)
     row_dict['qty_display'] = _fmt_qty(row_dict.get('qty', 0))
     return row_dict
+
+
+def _collect_admin_metrics(db) -> dict:
+    total_payments_raw = db.execute(
+        'SELECT COALESCE(SUM(amount), 0) AS s FROM payments WHERE status = ?',
+        ('paid',),
+    ).fetchone()['s']
+    total_claims = db.execute('SELECT COUNT(*) AS c FROM meal_claims').fetchone()['c']
+    unique_students_with_claims = db.execute(
+        'SELECT COUNT(DISTINCT user_id) AS c FROM meal_claims'
+    ).fetchone()['c']
+    total_issues = db.execute(
+        'SELECT COALESCE(SUM(issued_qty), 0) AS c FROM meal_issues'
+    ).fetchone()['c']
+    approved_procurement_cost_raw = db.execute(
+        """
+        SELECT COALESCE(SUM(qty * unit_price), 0) AS s
+        FROM purchase_requests
+        WHERE status = ? AND qty > 0 AND unit_price > 0
+        """,
+        ('approved',),
+    ).fetchone()['s']
+    approved_requests_count = db.execute(
+        """
+        SELECT COUNT(*) AS c
+        FROM purchase_requests
+        WHERE status = ? AND qty > 0 AND unit_price > 0
+        """,
+        ('approved',),
+    ).fetchone()['c']
+
+    total_payments = Decimal(str(total_payments_raw or 0))
+    approved_procurement_cost = Decimal(str(approved_procurement_cost_raw or 0))
+    operating_balance = total_payments - approved_procurement_cost
+    generated_at = datetime.now().isoformat(timespec='seconds')
+
+    return {
+        'generated_at': generated_at,
+        'total_payments_raw': total_payments,
+        'total_claims': total_claims,
+        'unique_students_with_claims': unique_students_with_claims,
+        'total_issues': total_issues,
+        'approved_procurement_cost_raw': approved_procurement_cost,
+        'approved_requests_count': approved_requests_count,
+        'operating_balance_raw': operating_balance,
+        'total_payments': _fmt_money(total_payments),
+        'approved_procurement_cost': _fmt_money(approved_procurement_cost),
+        'operating_balance': _fmt_money(operating_balance),
+    }
 
 
 @routes_bp.app_context_processor
@@ -243,6 +294,9 @@ def student_feedback():
     if not menu_item_id or not comment:
         flash('Для отзыва нужно выбрать блюдо и написать комментарий.')
         return redirect(url_for('routes.student_dashboard'))
+    if len(comment) > 500:
+        flash('Комментарий слишком длинный.')
+        return redirect(url_for('routes.student_dashboard'))
 
     try:
         rating = int(rating_raw)
@@ -311,6 +365,9 @@ def cook_issue():
     menu_item_id = request.form.get('menu_item_id')
     inventory_id = request.form.get('inventory_id')
     issue_note = request.form.get('issue_note', '').strip()
+    if len(issue_note) > 300:
+        flash('Комментарий к выдаче слишком длинный.')
+        return redirect(url_for('routes.cook_dashboard'))
 
     try:
         issued_qty = int(request.form.get('issued_qty', '1'))
@@ -454,29 +511,12 @@ def cook_purchase_request():
 @role_required('admin')
 def admin_dashboard():
     db = get_db()
+    metrics = _collect_admin_metrics(db)
     purchase_request_rows = db.execute(
         'SELECT pr.*, u.name AS cook_name FROM purchase_requests pr '
         'JOIN users u ON u.id = pr.cook_id ORDER BY pr.created_at DESC'
     ).fetchall()
     purchase_requests = [_decorate_purchase_row(row) for row in purchase_request_rows]
-
-    total_payments = db.execute(
-        'SELECT COALESCE(SUM(amount), 0) AS s FROM payments WHERE status = ?',
-        ('paid',),
-    ).fetchone()['s']
-    total_claims = db.execute('SELECT COUNT(*) AS c FROM meal_claims').fetchone()['c']
-    unique_students_with_claims = db.execute(
-        'SELECT COUNT(DISTINCT user_id) AS c FROM meal_claims'
-    ).fetchone()['c']
-    total_issues = db.execute('SELECT COALESCE(SUM(issued_qty), 0) AS c FROM meal_issues').fetchone()['c']
-    approved_procurement_cost = db.execute(
-        'SELECT COALESCE(SUM(qty * unit_price), 0) AS s FROM purchase_requests WHERE status = ?',
-        ('approved',),
-    ).fetchone()['s']
-    approved_requests_count = db.execute(
-        'SELECT COUNT(*) AS c FROM purchase_requests WHERE status = ?',
-        ('approved',),
-    ).fetchone()['c']
 
     report_rows = db.execute(
         """
@@ -512,15 +552,139 @@ def admin_dashboard():
     return render_template(
         'admin/dashboard.html',
         purchase_requests=purchase_requests,
-        total_payments=_fmt_money(total_payments),
-        total_claims=total_claims,
-        unique_students_with_claims=unique_students_with_claims,
-        total_issues=total_issues,
-        approved_procurement_cost=_fmt_money(approved_procurement_cost),
-        approved_requests_count=approved_requests_count,
-        operating_balance=_fmt_money(float(total_payments) - float(approved_procurement_cost)),
+        total_payments=metrics['total_payments'],
+        total_claims=metrics['total_claims'],
+        unique_students_with_claims=metrics['unique_students_with_claims'],
+        total_issues=metrics['total_issues'],
+        approved_procurement_cost=metrics['approved_procurement_cost'],
+        approved_requests_count=metrics['approved_requests_count'],
+        operating_balance=metrics['operating_balance'],
+        report_generated_at=metrics['generated_at'],
         report_rows=report_rows,
         meal_type_rows=meal_type_rows,
+    )
+
+
+@routes_bp.route('/admin/users')
+@role_required('admin')
+def admin_users():
+    db = get_db()
+    users = db.execute(
+        'SELECT id, name, email, role, is_active, created_at FROM users ORDER BY id ASC'
+    ).fetchall()
+    return render_template('admin/users.html', users=users)
+
+
+@routes_bp.route('/admin/users/<int:user_id>/role', methods=['POST'])
+@role_required('admin')
+def admin_update_user_role(user_id: int):
+    new_role = request.form.get('role', '').strip()
+    if new_role not in {'student', 'cook', 'admin'}:
+        flash('Некорректная роль.')
+        return redirect(url_for('routes.admin_users'))
+
+    db = get_db()
+    target_user = db.execute(
+        'SELECT id, role FROM users WHERE id = ?',
+        (user_id,),
+    ).fetchone()
+    if target_user is None:
+        flash('Пользователь не найден.')
+        return redirect(url_for('routes.admin_users'))
+
+    me = current_user()
+    if me and me['id'] == user_id and new_role != 'admin':
+        flash('Нельзя понизить собственную роль текущей сессии.')
+        return redirect(url_for('routes.admin_users'))
+
+    db.execute('UPDATE users SET role = ? WHERE id = ?', (new_role, user_id))
+    db.commit()
+    flash('Роль пользователя обновлена.')
+    return redirect(url_for('routes.admin_users'))
+
+
+@routes_bp.route('/admin/users/<int:user_id>/block', methods=['POST'])
+@role_required('admin')
+def admin_block_user(user_id: int):
+    action = request.form.get('action', '').strip()
+    if action not in {'block', 'unblock'}:
+        flash('Некорректное действие блокировки.')
+        return redirect(url_for('routes.admin_users'))
+
+    db = get_db()
+    target_user = db.execute(
+        'SELECT id, is_active FROM users WHERE id = ?',
+        (user_id,),
+    ).fetchone()
+    if target_user is None:
+        flash('Пользователь не найден.')
+        return redirect(url_for('routes.admin_users'))
+
+    me = current_user()
+    if me and me['id'] == user_id and action == 'block':
+        flash('Нельзя заблокировать собственный аккаунт.')
+        return redirect(url_for('routes.admin_users'))
+
+    next_state = 0 if action == 'block' else 1
+    db.execute('UPDATE users SET is_active = ? WHERE id = ?', (next_state, user_id))
+    db.commit()
+    flash('Статус пользователя обновлен.')
+    return redirect(url_for('routes.admin_users'))
+
+
+@routes_bp.route('/admin/report.csv')
+@role_required('admin')
+def admin_report_csv():
+    db = get_db()
+    metrics = _collect_admin_metrics(db)
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(['section', 'metric', 'value'])
+    writer.writerow(['meta', 'generated_at', metrics['generated_at']])
+    writer.writerow(['payments', 'total_paid', _fmt_money(metrics['total_payments_raw'])])
+    writer.writerow(['attendance', 'total_claims', metrics['total_claims']])
+    writer.writerow(
+        ['attendance', 'unique_students_with_claims', metrics['unique_students_with_claims']]
+    )
+    writer.writerow(['issuance', 'total_issues', metrics['total_issues']])
+    writer.writerow(
+        ['procurement', 'approved_requests_count', metrics['approved_requests_count']]
+    )
+    writer.writerow(
+        ['procurement', 'approved_procurement_cost', _fmt_money(metrics['approved_procurement_cost_raw'])]
+    )
+    writer.writerow(['finance', 'operating_balance', _fmt_money(metrics['operating_balance_raw'])])
+
+    report_rows = db.execute(
+        """
+        SELECT
+            mi.title,
+            mi.meal_type,
+            COUNT(mc.id) AS claims_count,
+            COALESCE(SUM(ms.issued_qty), 0) AS issued_count,
+            COALESCE(AVG(f.rating), 0) AS avg_rating
+        FROM menu_items mi
+        LEFT JOIN meal_claims mc ON mc.menu_item_id = mi.id
+        LEFT JOIN meal_issues ms ON ms.menu_item_id = mi.id
+        LEFT JOIN feedback f ON f.menu_item_id = mi.id
+        GROUP BY mi.id
+        ORDER BY mi.date DESC, mi.id DESC
+        """
+    ).fetchall()
+    writer.writerow([])
+    writer.writerow(['meal_title', 'meal_type', 'claims_count', 'issued_count', 'avg_rating'])
+    for row in report_rows:
+        writer.writerow(
+            [row['title'], row['meal_type'], row['claims_count'], row['issued_count'], _fmt_money(row['avg_rating'])]
+        )
+
+    csv_data = output.getvalue()
+    safe_stamp = metrics['generated_at'].replace(':', '-')
+    return Response(
+        csv_data,
+        mimetype='text/csv; charset=utf-8',
+        headers={'Content-Disposition': f'attachment; filename=admin_report_{safe_stamp}.csv'},
     )
 
 
@@ -533,6 +697,20 @@ def admin_update_request(request_id: int):
         return redirect(url_for('routes.admin_dashboard'))
 
     db = get_db()
+    req = db.execute(
+        'SELECT id, unit_price, qty FROM purchase_requests WHERE id = ?',
+        (request_id,),
+    ).fetchone()
+    if req is None:
+        flash('Заявка не найдена.')
+        return redirect(url_for('routes.admin_dashboard'))
+    if new_status == 'approved':
+        unit_price = Decimal(str(req['unit_price'] or 0))
+        qty = Decimal(str(req['qty'] or 0))
+        if unit_price <= 0 or qty <= 0:
+            flash('Нельзя одобрить заявку с невалидной ценой или количеством.')
+            return redirect(url_for('routes.admin_dashboard'))
+
     db.execute(
         'UPDATE purchase_requests SET status = ?, reviewed_by = ? WHERE id = ?',
         (new_status, current_user()['id'], request_id),

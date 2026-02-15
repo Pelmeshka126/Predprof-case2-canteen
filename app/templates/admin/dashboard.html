@@ -2,6 +2,17 @@
 {% block title %}Кабинет администратора{% endblock %}
 {% block content %}
 <h1>Кабинет администратора</h1>
+<div class="card">
+  <p><strong>Отчет сформирован:</strong> {{ report_generated_at }}</p>
+  <div class="actions-stack" style="max-width:320px;">
+    <form method="get" action="{{ url_for('routes.admin_report_csv') }}">
+      <button type="submit">Скачать отчет CSV</button>
+    </form>
+    <form method="get" action="{{ url_for('routes.admin_users') }}">
+      <button type="submit" class="btn-secondary">Управление пользователями</button>
+    </form>
+  </div>
+</div>
 <div class="grid grid-2">
   <div class="card">
     <h3>Сводная статистика</h3>
@@ -32,10 +43,12 @@
           <td>
             <div class="actions-stack">
               <form class="inline-form" method="post" action="{{ url_for('routes.admin_update_request', request_id=r['id']) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="status" value="approved">
                 <button type="submit">Одобрить</button>
               </form>
               <form class="inline-form" method="post" action="{{ url_for('routes.admin_update_request', request_id=r['id']) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
                 <input type="hidden" name="status" value="rejected">
                 <button class="btn-danger" type="submit">Отклонить</button>
               </form>

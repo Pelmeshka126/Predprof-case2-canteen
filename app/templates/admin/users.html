@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% block title %}Управление пользователями{% endblock %}
+{% block content %}
+<h1>Пользователи</h1>
+<div class="card">
+  <p><a href="{{ url_for('routes.admin_dashboard') }}">Вернуться в кабинет администратора</a></p>
+  <div class="table-wrap table-wrap--wide">
+    <table>
+      <tr>
+        <th>ID</th>
+        <th>Имя</th>
+        <th>Email</th>
+        <th>Роль</th>
+        <th>Статус</th>
+        <th>Создан</th>
+        <th>Действия</th>
+      </tr>
+      {% for u in users %}
+      <tr>
+        <td>{{ u['id'] }}</td>
+        <td>{{ u['name'] }}</td>
+        <td>{{ u['email'] }}</td>
+        <td>{{ u['role'] }}</td>
+        <td>{{ 'active' if u['is_active'] else 'blocked' }}</td>
+        <td>{{ u['created_at'] }}</td>
+        <td>
+          <div class="actions-stack">
+            <form method="post" action="{{ url_for('routes.admin_update_user_role', user_id=u['id']) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <select name="role">
+                <option value="student" {% if u['role'] == 'student' %}selected{% endif %}>student</option>
+                <option value="cook" {% if u['role'] == 'cook' %}selected{% endif %}>cook</option>
+                <option value="admin" {% if u['role'] == 'admin' %}selected{% endif %}>admin</option>
+              </select>
+              <button type="submit">Сменить роль</button>
+            </form>
+            {% if u['is_active'] %}
+            <form method="post" action="{{ url_for('routes.admin_block_user', user_id=u['id']) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="action" value="block">
+              <button class="btn-danger" type="submit">Заблокировать</button>
+            </form>
+            {% else %}
+            <form method="post" action="{{ url_for('routes.admin_block_user', user_id=u['id']) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+              <input type="hidden" name="action" value="unblock">
+              <button type="submit">Разблокировать</button>
+            </form>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+{% endblock %}
