@@ -16,24 +16,26 @@
 
   <div class="card">
     <h3>Меню и отметка получения</h3>
-    <table>
-      <tr><th>Дата</th><th>Тип</th><th>Блюдо</th><th>Цена</th><th>Остаток</th><th>Действие</th></tr>
-      {% for item in menu_items %}
-      <tr>
-        <td>{{ item['date'] }}</td>
-        <td>{{ 'Завтрак' if item['meal_type']=='breakfast' else 'Обед' }}</td>
-        <td>{{ item['title'] }}</td>
-        <td>{{ item['price'] }}</td>
-        <td>{{ item['available_qty'] }}</td>
-        <td>
-          <form class="inline-form" method="post" action="{{ url_for('routes.student_claim') }}">
-            <input type="hidden" name="menu_item_id" value="{{ item['id'] }}">
-            <button type="submit">Отметить получение</button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </table>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Дата</th><th>Тип</th><th>Блюдо</th><th>Цена</th><th>Остаток</th><th>Действие</th></tr>
+        {% for item in menu_items %}
+        <tr>
+          <td>{{ item['date'] }}</td>
+          <td>{{ 'Завтрак' if item['meal_type']=='breakfast' else 'Обед' }}</td>
+          <td>{{ item['title'] }}</td>
+          <td>{{ item['price_display'] }}</td>
+          <td>{{ item['available_qty'] }}</td>
+          <td>
+            <form class="inline-form" method="post" action="{{ url_for('routes.student_claim') }}">
+              <input type="hidden" name="menu_item_id" value="{{ item['id'] }}">
+              <button type="submit">Отметить получение</button>
+            </form>
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
   </div>
 
   <div class="card">
@@ -45,16 +47,18 @@
         <option value="subscription">Абонемент</option>
       </select>
       <label>Сумма</label>
-      <input type="number" step="0.01" name="amount" value="200" required>
+      <input type="number" step="0.01" min="0.01" max="50000" name="amount" value="200" required>
       <button type="submit">Оплатить</button>
     </form>
     <h3>История оплат</h3>
-    <table>
-      <tr><th>Дата</th><th>Тип</th><th>Сумма</th><th>Статус</th></tr>
-      {% for p in payments %}
-      <tr><td>{{ p['created_at'] }}</td><td>{{ p['payment_type'] }}</td><td>{{ p['amount'] }}</td><td>{{ p['status'] }}</td></tr>
-      {% endfor %}
-    </table>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Дата</th><th>Тип</th><th>Сумма</th><th>Статус</th></tr>
+        {% for p in payments %}
+        <tr><td>{{ p['created_at'] }}</td><td>{{ p['payment_type'] }}</td><td>{{ p['amount_display'] }}</td><td>{{ p['status'] }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
   </div>
 </div>
 
@@ -72,22 +76,26 @@
       <textarea name="comment" rows="3" required></textarea>
       <button type="submit">Сохранить отзыв</button>
     </form>
-    <table>
-      <tr><th>Дата</th><th>Блюдо</th><th>Оценка</th><th>Комментарий</th></tr>
-      {% for row in feedback_list %}
-      <tr><td>{{ row['created_at'] }}</td><td>{{ row['title'] }}</td><td>{{ row['rating'] }}</td><td>{{ row['comment'] }}</td></tr>
-      {% endfor %}
-    </table>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Дата</th><th>Блюдо</th><th>Оценка</th><th>Комментарий</th></tr>
+        {% for row in feedback_list %}
+        <tr><td>{{ row['created_at'] }}</td><td>{{ row['title'] }}</td><td>{{ row['rating'] }}</td><td>{{ row['comment'] }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
   </div>
 
   <div class="card">
     <h3>Мои отметки питания</h3>
-    <table>
-      <tr><th>Дата</th><th>Тип</th><th>Блюдо</th></tr>
-      {% for c in claims %}
-      <tr><td>{{ c['claimed_at'] }}</td><td>{{ c['meal_type'] }}</td><td>{{ c['title'] }}</td></tr>
-      {% endfor %}
-    </table>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Дата</th><th>Тип</th><th>Блюдо</th></tr>
+        {% for c in claims %}
+        <tr><td>{{ c['claimed_at'] }}</td><td>{{ c['meal_type'] }}</td><td>{{ c['title'] }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
   </div>
 </div>
 {% endblock %}

@@ -5,12 +5,14 @@
 {% if low_stock %}
 <div class="card">
   <h3>Внимание: низкие остатки</h3>
-  <table>
-    <tr><th>Продукт</th><th>Остаток</th><th>Ед.</th></tr>
-    {% for inv in low_stock %}
-    <tr><td>{{ inv['product_name'] }}</td><td>{{ inv['qty'] }}</td><td>{{ inv['unit'] }}</td></tr>
-    {% endfor %}
-  </table>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Продукт</th><th>Остаток</th><th>Ед.</th></tr>
+      {% for inv in low_stock %}
+      <tr><td>{{ inv['product_name'] }}</td><td>{{ inv['qty_display'] }}</td><td>{{ inv['unit'] }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
 </div>
 {% endif %}
 <div class="grid grid-2">
@@ -20,13 +22,13 @@
       <label>Блюдо</label>
       <select name="menu_item_id">
         {% for item in menu_items %}
-        <option value="{{ item['id'] }}">{{ item['title'] }} (остаток {{ item['available_qty'] }})</option>
+        <option value="{{ item['id'] }}">{{ item['title'] }} (цена {{ item['price_display'] }}, остаток {{ item['available_qty'] }})</option>
         {% endfor %}
       </select>
       <label>Продукт со склада</label>
       <select name="inventory_id">
         {% for inv in inventory %}
-        <option value="{{ inv['id'] }}">{{ inv['product_name'] }} ({{ inv['qty'] }} {{ inv['unit'] }})</option>
+        <option value="{{ inv['id'] }}">{{ inv['product_name'] }} ({{ inv['qty_display'] }} {{ inv['unit'] }})</option>
         {% endfor %}
       </select>
       <label>Количество выданных порций</label>
@@ -36,12 +38,14 @@
       <button type="submit">Зафиксировать выдачу</button>
     </form>
     <h3>История выдачи</h3>
-    <table>
-      <tr><th>Дата</th><th>Блюдо</th><th>Кол-во</th><th>Комментарий</th></tr>
-      {% for row in issues %}
-      <tr><td>{{ row['issued_at'] }}</td><td>{{ row['title'] }}</td><td>{{ row['issued_qty'] }}</td><td>{{ row['issue_note'] }}</td></tr>
-      {% endfor %}
-    </table>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Дата</th><th>Блюдо</th><th>Кол-во</th><th>Комментарий</th></tr>
+        {% for row in issues %}
+        <tr><td>{{ row['issued_at'] }}</td><td>{{ row['title'] }}</td><td>{{ row['issued_qty'] }}</td><td>{{ row['issue_note'] }}</td></tr>
+        {% endfor %}
+      </table>
+    </div>
   </div>
 
   <div class="card">
@@ -50,45 +54,49 @@
       <label>Название продукта</label>
       <input name="product_name" required>
       <label>Количество</label>
-      <input type="number" step="0.1" name="qty" min="0.1" required>
+      <input type="number" step="0.001" name="qty" min="0.001" max="10000" required>
       <label>Цена за единицу</label>
-      <input type="number" step="0.01" name="unit_price" min="0.01" required>
+      <input type="number" step="0.01" name="unit_price" min="0.01" max="100000" required>
       <label>Обоснование</label>
       <textarea name="reason" rows="3" required></textarea>
       <button type="submit">Отправить заявку</button>
     </form>
     <h3>Мои/общие заявки</h3>
-    <table>
-      <tr><th>Дата</th><th>Повар</th><th>Продукт</th><th>Кол-во</th><th>Цена/ед.</th><th>Сумма</th><th>Статус</th></tr>
-      {% for r in requests %}
-      <tr>
-        <td>{{ r['created_at'] }}</td>
-        <td>{{ r['cook_name'] }}</td>
-        <td>{{ r['product_name'] }}</td>
-        <td>{{ r['qty'] }}</td>
-        <td>{{ r['unit_price'] }}</td>
-        <td>{{ '%.2f'|format(r['qty'] * r['unit_price']) }}</td>
-        <td>{{ r['status'] }}</td>
-      </tr>
-      {% endfor %}
-    </table>
+    <div class="table-wrap table-wrap--wide">
+      <table>
+        <tr><th>Дата</th><th>Повар</th><th>Продукт</th><th>Кол-во</th><th>Цена/ед.</th><th>Сумма</th><th>Статус</th></tr>
+        {% for r in requests %}
+        <tr>
+          <td>{{ r['created_at'] }}</td>
+          <td>{{ r['cook_name'] }}</td>
+          <td>{{ r['product_name'] }}</td>
+          <td>{{ r['qty_display'] }}</td>
+          <td>{{ r['unit_price_display'] }}</td>
+          <td>{{ r['total_display'] }}</td>
+          <td>{{ r['status'] }}</td>
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
   </div>
 </div>
 
 <div class="card">
   <h3>Склад</h3>
-  <table>
-    <tr><th>Продукт</th><th>Остаток</th><th>Ед.</th></tr>
-    {% for inv in inventory %}
-    <tr><td>{{ inv['product_name'] }}</td><td>{{ inv['qty'] }}</td><td>{{ inv['unit'] }}</td></tr>
-    {% endfor %}
-  </table>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Продукт</th><th>Остаток</th><th>Ед.</th></tr>
+      {% for inv in inventory %}
+      <tr><td>{{ inv['product_name'] }}</td><td>{{ inv['qty_display'] }}</td><td>{{ inv['unit'] }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
   <h3>Изменение остатков вручную</h3>
   <form method="post" action="{{ url_for('routes.cook_inventory_update') }}">
     <label>Продукт</label>
     <select name="inventory_id">
       {% for inv in inventory %}
-      <option value="{{ inv['id'] }}">{{ inv['product_name'] }} ({{ inv['qty'] }} {{ inv['unit'] }})</option>
+      <option value="{{ inv['id'] }}">{{ inv['product_name'] }} ({{ inv['qty_display'] }} {{ inv['unit'] }})</option>
       {% endfor %}
     </select>
     <label>Операция</label>
@@ -97,7 +105,7 @@
       <option value="subtract">Списать</option>
     </select>
     <label>Количество</label>
-    <input type="number" name="delta_qty" step="0.1" min="0.1" value="1" required>
+    <input type="number" name="delta_qty" step="0.001" min="0.001" max="10000" value="1" required>
     <button type="submit">Обновить остаток</button>
   </form>
 </div>

@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS meal_issues (
 CREATE TABLE IF NOT EXISTS inventory (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     product_name TEXT NOT NULL UNIQUE,
-    qty REAL NOT NULL,
+    qty REAL NOT NULL CHECK(qty >= 0 AND qty <= 10000),
     unit TEXT NOT NULL
 );
 
@@ -67,8 +67,8 @@ CREATE TABLE IF NOT EXISTS purchase_requests (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     cook_id INTEGER NOT NULL,
     product_name TEXT NOT NULL,
-    qty REAL NOT NULL,
-    unit_price REAL NOT NULL DEFAULT 0,
+    qty REAL NOT NULL CHECK(qty > 0 AND qty <= 10000),
+    unit_price REAL NOT NULL DEFAULT 0 CHECK(unit_price >= 0 AND unit_price <= 100000),
     reason TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
     reviewed_by INTEGER,
@@ -117,6 +117,17 @@ def init_db() -> None:
     db = get_db()
     db.executescript(SCHEMA_SQL)
     _ensure_column(db, 'purchase_requests', 'unit_price', 'REAL NOT NULL DEFAULT 0')
+    db.execute('UPDATE inventory SET qty = 0 WHERE qty < 0 OR qty > 10000')
+    db.execute('UPDATE inventory SET qty = ROUND(qty, 3)')
+    db.execute(
+        'UPDATE purchase_requests SET qty = 0 '
+        'WHERE qty IS NULL OR qty < 0 OR qty > 10000'
+    )
+    db.execute(
+        'UPDATE purchase_requests SET unit_price = 0 '
+        'WHERE unit_price IS NULL OR unit_price < 0 OR unit_price > 100000'
+    )
+    db.execute('UPDATE purchase_requests SET qty = ROUND(qty, 3), unit_price = ROUND(unit_price, 2)')
 
     users_count = db.execute('SELECT COUNT(*) AS c FROM users').fetchone()['c']
     if users_count == 0:

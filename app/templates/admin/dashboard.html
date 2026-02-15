@@ -16,59 +16,67 @@
 
   <div class="card">
     <h3>Согласование заявок на закупку</h3>
-    <table>
-      <tr><th>Дата</th><th>Повар</th><th>Продукт</th><th>Кол-во</th><th>Цена/ед.</th><th>Сумма</th><th>Причина</th><th>Статус</th><th>Действия</th></tr>
-      {% for r in purchase_requests %}
-      <tr>
-        <td>{{ r['created_at'] }}</td>
-        <td>{{ r['cook_name'] }}</td>
-        <td>{{ r['product_name'] }}</td>
-        <td>{{ r['qty'] }}</td>
-        <td>{{ r['unit_price'] }}</td>
-        <td>{{ '%.2f'|format(r['qty'] * r['unit_price']) }}</td>
-        <td>{{ r['reason'] }}</td>
-        <td>{{ r['status'] }}</td>
-        <td>
-          <form class="inline-form" method="post" action="{{ url_for('routes.admin_update_request', request_id=r['id']) }}">
-            <input type="hidden" name="status" value="approved">
-            <button type="submit">Одобрить</button>
-          </form>
-          <form class="inline-form" method="post" action="{{ url_for('routes.admin_update_request', request_id=r['id']) }}">
-            <input type="hidden" name="status" value="rejected">
-            <button class="btn-danger" type="submit">Отклонить</button>
-          </form>
-        </td>
-      </tr>
-      {% endfor %}
-    </table>
+    <div class="table-wrap table-wrap--wide">
+      <table>
+        <tr><th>Дата</th><th>Повар</th><th>Продукт</th><th>Кол-во</th><th>Цена/ед.</th><th>Сумма</th><th>Причина</th><th>Статус</th><th>Действия</th></tr>
+        {% for r in purchase_requests %}
+        <tr>
+          <td>{{ r['created_at'] }}</td>
+          <td>{{ r['cook_name'] }}</td>
+          <td>{{ r['product_name'] }}</td>
+          <td>{{ r['qty_display'] }}</td>
+          <td>{{ r['unit_price_display'] }}</td>
+          <td>{{ r['total_display'] }}</td>
+          <td>{{ r['reason'] }}</td>
+          <td>{{ r['status'] }}</td>
+          <td>
+            <div class="actions-stack">
+              <form class="inline-form" method="post" action="{{ url_for('routes.admin_update_request', request_id=r['id']) }}">
+                <input type="hidden" name="status" value="approved">
+                <button type="submit">Одобрить</button>
+              </form>
+              <form class="inline-form" method="post" action="{{ url_for('routes.admin_update_request', request_id=r['id']) }}">
+                <input type="hidden" name="status" value="rejected">
+                <button class="btn-danger" type="submit">Отклонить</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </table>
+    </div>
   </div>
 </div>
 
 <div class="card">
   <h3>Отчет по питанию и затратам</h3>
-  <table>
-    <tr><th>Блюдо</th><th>Тип</th><th>Кол-во получений</th><th>Кол-во выдач</th><th>Средняя оценка</th></tr>
-    {% for row in report_rows %}
-    <tr>
-      <td>{{ row['title'] }}</td>
-      <td>{{ row['meal_type'] }}</td>
-      <td>{{ row['claims_count'] }}</td>
-      <td>{{ row['issued_count'] }}</td>
-      <td>{{ '%.2f'|format(row['avg_rating']) }}</td>
-    </tr>
-    {% endfor %}
-  </table>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Блюдо</th><th>Тип</th><th>Кол-во получений</th><th>Кол-во выдач</th><th>Средняя оценка</th></tr>
+      {% for row in report_rows %}
+      <tr>
+        <td>{{ row['title'] }}</td>
+        <td>{{ row['meal_type'] }}</td>
+        <td>{{ row['claims_count'] }}</td>
+        <td>{{ row['issued_count'] }}</td>
+        <td>{{ '%.2f'|format(row['avg_rating']) }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
 
   <h3>Сводка по типам питания</h3>
-  <table>
-    <tr><th>Тип</th><th>Получений</th><th>Выдач</th></tr>
-    {% for row in meal_type_rows %}
-    <tr>
-      <td>{{ 'Завтрак' if row['meal_type'] == 'breakfast' else 'Обед' }}</td>
-      <td>{{ row['total_claims'] }}</td>
-      <td>{{ row['total_issues'] }}</td>
-    </tr>
-    {% endfor %}
-  </table>
+  <div class="table-wrap">
+    <table>
+      <tr><th>Тип</th><th>Получений</th><th>Выдач</th></tr>
+      {% for row in meal_type_rows %}
+      <tr>
+        <td>{{ 'Завтрак' if row['meal_type'] == 'breakfast' else 'Обед' }}</td>
+        <td>{{ row['total_claims'] }}</td>
+        <td>{{ row['total_issues'] }}</td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
 </div>
 {% endblock %}

@@ -133,6 +133,33 @@ class Case2AppTest(unittest.TestCase):
         self.assertIn('Сумма затрат по одобренным закупкам', refreshed)
         self.assertIn('Баланс (оплаты - затраты)', refreshed)
 
+    def test_exponential_and_too_large_values_are_rejected(self):
+        self.login('cook@predprof.local', 'cook123')
+
+        response = self.client.post(
+            '/cook/purchase-request',
+            data={
+                'product_name': 'Тест',
+                'qty': '1e9',
+                'unit_price': '10',
+                'reason': 'Проверка',
+            },
+            follow_redirects=True,
+        )
+        self.assertIn('экспоненциальная запись недопустима', response.get_data(as_text=True))
+
+        response = self.client.post(
+            '/cook/purchase-request',
+            data={
+                'product_name': 'Тест',
+                'qty': '1',
+                'unit_price': '999999',
+                'reason': 'Проверка',
+            },
+            follow_redirects=True,
+        )
+        self.assertIn('превышен допустимый максимум', response.get_data(as_text=True))
+
 
 if __name__ == '__main__':
     unittest.main()
