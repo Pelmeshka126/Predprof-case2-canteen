@@ -1,5 +1,6 @@
 import sqlite3
 from datetime import date
+from datetime import datetime
 from typing import Any
 
 from flask import current_app, g
@@ -12,6 +13,8 @@ CREATE TABLE IF NOT EXISTS users (
     email TEXT UNIQUE NOT NULL,
     password_hash TEXT NOT NULL,
     role TEXT NOT NULL CHECK(role IN ('student', 'cook', 'admin')),
+    is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+    created_at TEXT NOT NULL,
     allergies TEXT DEFAULT '',
     preferences TEXT DEFAULT ''
 );
@@ -68,7 +71,7 @@ CREATE TABLE IF NOT EXISTS purchase_requests (
     cook_id INTEGER NOT NULL,
     product_name TEXT NOT NULL,
     qty REAL NOT NULL CHECK(qty > 0 AND qty <= 10000),
-    unit_price REAL NOT NULL DEFAULT 0 CHECK(unit_price >= 0 AND unit_price <= 100000),
+    unit_price REAL NOT NULL CHECK(unit_price >= 0 AND unit_price <= 100000),
     reason TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
     reviewed_by INTEGER,
@@ -116,7 +119,40 @@ def close_db(_e: Any = None) -> None:
 def init_db() -> None:
     db = get_db()
     db.executescript(SCHEMA_SQL)
+    _ensure_column(db, 'users', 'is_active', 'INTEGER NOT NULL DEFAULT 1')
+    _ensure_column(db, 'users', 'created_at', "TEXT NOT NULL DEFAULT ''")
     _ensure_column(db, 'purchase_requests', 'unit_price', 'REAL NOT NULL DEFAULT 0')
+    db.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS purchase_requests_positive_price_insert
+        BEFORE INSERT ON purchase_requests
+        FOR EACH ROW
+        WHEN NEW.unit_price <= 0
+        BEGIN
+            SELECT RAISE(ABORT, 'purchase_requests.unit_price must be > 0');
+        END;
+        """
+    )
+    db.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS purchase_requests_positive_price_update
+        BEFORE UPDATE ON purchase_requests
+        FOR EACH ROW
+        WHEN NEW.unit_price <= 0 AND OLD.unit_price > 0
+        BEGIN
+            SELECT RAISE(ABORT, 'purchase_requests.unit_price must be > 0');
+        END;
+        """
+    )
+
+    now = datetime.now().isoformat(timespec='seconds')
+    db.execute(
+        "UPDATE users SET created_at = ? WHERE created_at IS NULL OR TRIM(created_at) = ''",
+        (now,),
+    )
+    db.execute('UPDATE users SET is_active = 1 WHERE is_active IS NULL')
+    db.execute('UPDATE users SET is_active = 1 WHERE is_active NOT IN (0, 1)')
+
     db.execute('UPDATE inventory SET qty = 0 WHERE qty < 0 OR qty > 10000')
     db.execute('UPDATE inventory SET qty = ROUND(qty, 3)')
     db.execute(
@@ -128,22 +164,40 @@ def init_db() -> None:
         'WHERE unit_price IS NULL OR unit_price < 0 OR unit_price > 100000'
     )
     db.execute('UPDATE purchase_requests SET qty = ROUND(qty, 3), unit_price = ROUND(unit_price, 2)')
+    legacy_note = '[SYSTEM] Отклонено: legacy-запись с unit_price=0.'
+    db.execute(
+        """
+        UPDATE purchase_requests
+        SET
+            status = 'rejected',
+            reason = CASE
+                WHEN reason IS NULL OR TRIM(reason) = '' THEN ?
+                WHEN instr(reason, ?) > 0 THEN reason
+                ELSE reason || ' | ' || ?
+            END
+        WHERE status = 'approved' AND unit_price = 0
+        """,
+        (legacy_note, legacy_note, legacy_note),
+    )
 
     users_count = db.execute('SELECT COUNT(*) AS c FROM users').fetchone()['c']
     if users_count == 0:
         from werkzeug.security import generate_password_hash
 
         db.execute(
-            'INSERT INTO users(name, email, password_hash, role) VALUES (?, ?, ?, ?)',
-            ('Admin Demo', 'admin@predprof.local', generate_password_hash('admin123'), 'admin'),
+            'INSERT INTO users(name, email, password_hash, role, is_active, created_at) '
+            'VALUES (?, ?, ?, ?, ?, ?)',
+            ('Admin Demo', 'admin@predprof.local', generate_password_hash('admin123'), 'admin', 1, now),
         )
         db.execute(
-            'INSERT INTO users(name, email, password_hash, role) VALUES (?, ?, ?, ?)',
-            ('Cook Demo', 'cook@predprof.local', generate_password_hash('cook123'), 'cook'),
+            'INSERT INTO users(name, email, password_hash, role, is_active, created_at) '
+            'VALUES (?, ?, ?, ?, ?, ?)',
+            ('Cook Demo', 'cook@predprof.local', generate_password_hash('cook123'), 'cook', 1, now),
         )
         db.execute(
-            'INSERT INTO users(name, email, password_hash, role) VALUES (?, ?, ?, ?)',
-            ('Student Demo', 'student@predprof.local', generate_password_hash('student123'), 'student'),
+            'INSERT INTO users(name, email, password_hash, role, is_active, created_at) '
+            'VALUES (?, ?, ?, ?, ?, ?)',
+            ('Student Demo', 'student@predprof.local', generate_password_hash('student123'), 'student', 1, now),
         )
 
     menu_count = db.execute('SELECT COUNT(*) AS c FROM menu_items').fetchone()['c']
