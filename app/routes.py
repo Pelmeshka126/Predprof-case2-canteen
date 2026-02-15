@@ -27,33 +27,55 @@ def index():
 @routes_bp.route('/student/dashboard')
 @role_required('student')
 def student_dashboard():
+    student = current_user()
     db = get_db()
     menu_items = db.execute(
         'SELECT * FROM menu_items ORDER BY date DESC, meal_type ASC, id DESC'
     ).fetchall()
     payments = db.execute(
         'SELECT * FROM payments WHERE user_id = ? ORDER BY created_at DESC',
-        (current_user()['id'],),
+        (student['id'],),
     ).fetchall()
     claims = db.execute(
         'SELECT mc.id, mc.claimed_at, mi.title, mi.meal_type '
         'FROM meal_claims mc JOIN menu_items mi ON mc.menu_item_id = mi.id '
         'WHERE mc.user_id = ? ORDER BY mc.claimed_at DESC',
-        (current_user()['id'],),
+        (student['id'],),
     ).fetchall()
     feedback_list = db.execute(
         'SELECT f.id, f.rating, f.comment, mi.title, f.created_at '
         'FROM feedback f JOIN menu_items mi ON f.menu_item_id = mi.id '
         'WHERE f.user_id = ? ORDER BY f.created_at DESC',
-        (current_user()['id'],),
+        (student['id'],),
     ).fetchall()
     return render_template(
         'student/dashboard.html',
+        student=student,
         menu_items=menu_items,
         payments=payments,
         claims=claims,
         feedback_list=feedback_list,
     )
+
+
+@routes_bp.route('/student/profile', methods=['POST'])
+@role_required('student')
+def student_profile():
+    allergies = request.form.get('allergies', '').strip()
+    preferences = request.form.get('preferences', '').strip()
+
+    if len(allergies) > 500 or len(preferences) > 500:
+        flash('Слишком длинное описание аллергий или предпочтений.')
+        return redirect(url_for('routes.student_dashboard'))
+
+    db = get_db()
+    db.execute(
+        'UPDATE users SET allergies = ?, preferences = ? WHERE id = ?',
+        (allergies, preferences, current_user()['id']),
+    )
+    db.commit()
+    flash('Пищевые аллергии и предпочтения сохранены.')
+    return redirect(url_for('routes.student_dashboard'))
 
 
 @routes_bp.route('/student/pay', methods=['POST'])
@@ -173,10 +195,12 @@ def cook_dashboard():
         'WHERE ms.cook_id = ? ORDER BY ms.issued_at DESC',
         (current_user()['id'],),
     ).fetchall()
+    low_stock = [row for row in inventory if row['qty'] < 10]
     return render_template(
         'cook/dashboard.html',
         menu_items=menu_items,
         inventory=inventory,
+        low_stock=low_stock,
         requests=requests,
         issues=issues,
     )
@@ -232,6 +256,45 @@ def cook_issue():
     return redirect(url_for('routes.cook_dashboard'))
 
 
+@routes_bp.route('/cook/inventory/update', methods=['POST'])
+@role_required('cook')
+def cook_inventory_update():
+    inventory_id = request.form.get('inventory_id')
+    operation = request.form.get('operation', 'set')
+    try:
+        delta = float(request.form.get('delta_qty', '0'))
+    except ValueError:
+        delta = 0
+
+    if delta <= 0:
+        flash('Количество для изменения остатков должно быть больше нуля.')
+        return redirect(url_for('routes.cook_dashboard'))
+
+    db = get_db()
+    inv = db.execute('SELECT * FROM inventory WHERE id = ?', (inventory_id,)).fetchone()
+    if inv is None:
+        flash('Позиция склада не найдена.')
+        return redirect(url_for('routes.cook_dashboard'))
+
+    new_qty = inv['qty']
+    if operation == 'add':
+        new_qty = inv['qty'] + delta
+    elif operation == 'subtract':
+        new_qty = inv['qty'] - delta
+    else:
+        flash('Некорректная операция изменения остатков.')
+        return redirect(url_for('routes.cook_dashboard'))
+
+    if new_qty < 0:
+        flash('Остаток не может быть отрицательным.')
+        return redirect(url_for('routes.cook_dashboard'))
+
+    db.execute('UPDATE inventory SET qty = ? WHERE id = ?', (new_qty, inventory_id))
+    db.commit()
+    flash('Остатки обновлены.')
+    return redirect(url_for('routes.cook_dashboard'))
+
+
 @routes_bp.route('/cook/purchase-request', methods=['POST'])
 @role_required('cook')
 def cook_purchase_request():
@@ -243,17 +306,24 @@ def cook_purchase_request():
     except ValueError:
         qty = 0
 
-    if not product_name or not reason or qty <= 0:
+    try:
+        unit_price = float(request.form.get('unit_price', '0'))
+    except ValueError:
+        unit_price = 0
+
+    if not product_name or not reason or qty <= 0 or unit_price <= 0:
         flash('Заполните корректно заявку на закупку.')
         return redirect(url_for('routes.cook_dashboard'))
 
     db = get_db()
     db.execute(
-        'INSERT INTO purchase_requests(cook_id, product_name, qty, reason, created_at) VALUES (?, ?, ?, ?, ?)',
+        'INSERT INTO purchase_requests(cook_id, product_name, qty, unit_price, reason, created_at) '
+        'VALUES (?, ?, ?, ?, ?, ?)',
         (
             current_user()['id'],
             product_name,
             qty,
+            unit_price,
             reason,
             datetime.now().isoformat(timespec='seconds'),
         ),
@@ -267,14 +337,28 @@ def cook_purchase_request():
 @role_required('admin')
 def admin_dashboard():
     db = get_db()
-    pending = db.execute(
+    purchase_requests = db.execute(
         'SELECT pr.*, u.name AS cook_name FROM purchase_requests pr '
         'JOIN users u ON u.id = pr.cook_id ORDER BY pr.created_at DESC'
     ).fetchall()
 
-    total_payments = db.execute('SELECT COALESCE(SUM(amount), 0) AS s FROM payments WHERE status = ?', ('paid',)).fetchone()['s']
+    total_payments = db.execute(
+        'SELECT COALESCE(SUM(amount), 0) AS s FROM payments WHERE status = ?',
+        ('paid',),
+    ).fetchone()['s']
     total_claims = db.execute('SELECT COUNT(*) AS c FROM meal_claims').fetchone()['c']
+    unique_students_with_claims = db.execute(
+        'SELECT COUNT(DISTINCT user_id) AS c FROM meal_claims'
+    ).fetchone()['c']
     total_issues = db.execute('SELECT COALESCE(SUM(issued_qty), 0) AS c FROM meal_issues').fetchone()['c']
+    approved_procurement_cost = db.execute(
+        'SELECT COALESCE(SUM(qty * unit_price), 0) AS s FROM purchase_requests WHERE status = ?',
+        ('approved',),
+    ).fetchone()['s']
+    approved_requests_count = db.execute(
+        'SELECT COUNT(*) AS c FROM purchase_requests WHERE status = ?',
+        ('approved',),
+    ).fetchone()['c']
 
     report_rows = db.execute(
         """
@@ -282,22 +366,43 @@ def admin_dashboard():
             mi.title,
             mi.meal_type,
             COUNT(mc.id) AS claims_count,
+            COALESCE(SUM(ms.issued_qty), 0) AS issued_count,
             COALESCE(AVG(f.rating), 0) AS avg_rating
         FROM menu_items mi
         LEFT JOIN meal_claims mc ON mc.menu_item_id = mi.id
+        LEFT JOIN meal_issues ms ON ms.menu_item_id = mi.id
         LEFT JOIN feedback f ON f.menu_item_id = mi.id
         GROUP BY mi.id
         ORDER BY mi.date DESC, mi.id DESC
         """
     ).fetchall()
 
+    meal_type_rows = db.execute(
+        """
+        SELECT
+            mi.meal_type,
+            COUNT(DISTINCT mc.id) AS total_claims,
+            COALESCE(SUM(ms.issued_qty), 0) AS total_issues
+        FROM menu_items mi
+        LEFT JOIN meal_claims mc ON mc.menu_item_id = mi.id
+        LEFT JOIN meal_issues ms ON ms.menu_item_id = mi.id
+        GROUP BY mi.meal_type
+        ORDER BY mi.meal_type ASC
+        """
+    ).fetchall()
+
     return render_template(
         'admin/dashboard.html',
-        pending=pending,
+        purchase_requests=purchase_requests,
         total_payments=round(float(total_payments), 2),
         total_claims=total_claims,
+        unique_students_with_claims=unique_students_with_claims,
         total_issues=total_issues,
+        approved_procurement_cost=round(float(approved_procurement_cost), 2),
+        approved_requests_count=approved_requests_count,
+        operating_balance=round(float(total_payments) - float(approved_procurement_cost), 2),
         report_rows=report_rows,
+        meal_type_rows=meal_type_rows,
     )
 
 

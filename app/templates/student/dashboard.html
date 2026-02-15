@@ -4,6 +4,17 @@
 <h1>Кабинет ученика</h1>
 <div class="grid grid-2">
   <div class="card">
+    <h3>Пищевые аллергии и предпочтения</h3>
+    <form method="post" action="{{ url_for('routes.student_profile') }}">
+      <label>Аллергии</label>
+      <textarea name="allergies" rows="2" placeholder="например: орехи, молочные продукты">{{ student['allergies'] }}</textarea>
+      <label>Пищевые предпочтения</label>
+      <textarea name="preferences" rows="2" placeholder="например: без сахара, больше овощей">{{ student['preferences'] }}</textarea>
+      <button type="submit">Сохранить профиль питания</button>
+    </form>
+  </div>
+
+  <div class="card">
     <h3>Меню и отметка получения</h3>
     <table>
       <tr><th>Дата</th><th>Тип</th><th>Блюдо</th><th>Цена</th><th>Остаток</th><th>Действие</th></tr>
@@ -15,7 +26,7 @@
         <td>{{ item['price'] }}</td>
         <td>{{ item['available_qty'] }}</td>
         <td>
-          <form method="post" action="{{ url_for('routes.student_claim') }}">
+          <form class="inline-form" method="post" action="{{ url_for('routes.student_claim') }}">
             <input type="hidden" name="menu_item_id" value="{{ item['id'] }}">
             <button type="submit">Отметить получение</button>
           </form>

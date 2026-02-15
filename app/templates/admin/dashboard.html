@@ -7,27 +7,33 @@
     <h3>Сводная статистика</h3>
     <p><strong>Оплачено всего:</strong> {{ total_payments }}</p>
     <p><strong>Отметок получения питания:</strong> {{ total_claims }}</p>
+    <p><strong>Уникальных учеников с отметкой:</strong> {{ unique_students_with_claims }}</p>
     <p><strong>Выдано порций поваром:</strong> {{ total_issues }}</p>
+    <p><strong>Одобренных заявок на закупку:</strong> {{ approved_requests_count }}</p>
+    <p><strong>Сумма затрат по одобренным закупкам:</strong> {{ approved_procurement_cost }}</p>
+    <p><strong>Баланс (оплаты - затраты):</strong> {{ operating_balance }}</p>
   </div>
 
   <div class="card">
     <h3>Согласование заявок на закупку</h3>
     <table>
-      <tr><th>Дата</th><th>Повар</th><th>Продукт</th><th>Кол-во</th><th>Причина</th><th>Статус</th><th>Действия</th></tr>
-      {% for r in pending %}
+      <tr><th>Дата</th><th>Повар</th><th>Продукт</th><th>Кол-во</th><th>Цена/ед.</th><th>Сумма</th><th>Причина</th><th>Статус</th><th>Действия</th></tr>
+      {% for r in purchase_requests %}
       <tr>
         <td>{{ r['created_at'] }}</td>
         <td>{{ r['cook_name'] }}</td>
         <td>{{ r['product_name'] }}</td>
         <td>{{ r['qty'] }}</td>
+        <td>{{ r['unit_price'] }}</td>
+        <td>{{ '%.2f'|format(r['qty'] * r['unit_price']) }}</td>
         <td>{{ r['reason'] }}</td>
         <td>{{ r['status'] }}</td>
         <td>
-          <form method="post" action="{{ url_for('routes.admin_update_request', request_id=r['id']) }}">
+          <form class="inline-form" method="post" action="{{ url_for('routes.admin_update_request', request_id=r['id']) }}">
             <input type="hidden" name="status" value="approved">
             <button type="submit">Одобрить</button>
           </form>
-          <form method="post" action="{{ url_for('routes.admin_update_request', request_id=r['id']) }}">
+          <form class="inline-form" method="post" action="{{ url_for('routes.admin_update_request', request_id=r['id']) }}">
             <input type="hidden" name="status" value="rejected">
             <button class="btn-danger" type="submit">Отклонить</button>
           </form>
@@ -41,13 +47,26 @@
 <div class="card">
   <h3>Отчет по питанию и затратам</h3>
   <table>
-    <tr><th>Блюдо</th><th>Тип</th><th>Кол-во получений</th><th>Средняя оценка</th></tr>
+    <tr><th>Блюдо</th><th>Тип</th><th>Кол-во получений</th><th>Кол-во выдач</th><th>Средняя оценка</th></tr>
     {% for row in report_rows %}
     <tr>
       <td>{{ row['title'] }}</td>
       <td>{{ row['meal_type'] }}</td>
       <td>{{ row['claims_count'] }}</td>
+      <td>{{ row['issued_count'] }}</td>
       <td>{{ '%.2f'|format(row['avg_rating']) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  <h3>Сводка по типам питания</h3>
+  <table>
+    <tr><th>Тип</th><th>Получений</th><th>Выдач</th></tr>
+    {% for row in meal_type_rows %}
+    <tr>
+      <td>{{ 'Завтрак' if row['meal_type'] == 'breakfast' else 'Обед' }}</td>
+      <td>{{ row['total_claims'] }}</td>
+      <td>{{ row['total_issues'] }}</td>
     </tr>
     {% endfor %}
   </table>

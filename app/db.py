@@ -68,6 +68,7 @@ CREATE TABLE IF NOT EXISTS purchase_requests (
     cook_id INTEGER NOT NULL,
     product_name TEXT NOT NULL,
     qty REAL NOT NULL,
+    unit_price REAL NOT NULL DEFAULT 0,
     reason TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending', 'approved', 'rejected')),
     reviewed_by INTEGER,
@@ -89,6 +90,15 @@ CREATE TABLE IF NOT EXISTS feedback (
 """
 
 
+def _ensure_column(db: sqlite3.Connection, table_name: str, column_name: str, column_ddl: str) -> None:
+    columns = {
+        row['name']
+        for row in db.execute(f'PRAGMA table_info({table_name})').fetchall()
+    }
+    if column_name not in columns:
+        db.execute(f'ALTER TABLE {table_name} ADD COLUMN {column_name} {column_ddl}')
+
+
 def get_db() -> sqlite3.Connection:
     if 'db' not in g:
         conn = sqlite3.connect(current_app.config['DATABASE'])
@@ -106,6 +116,7 @@ def close_db(_e: Any = None) -> None:
 def init_db() -> None:
     db = get_db()
     db.executescript(SCHEMA_SQL)
+    _ensure_column(db, 'purchase_requests', 'unit_price', 'REAL NOT NULL DEFAULT 0')
 
     users_count = db.execute('SELECT COUNT(*) AS c FROM users').fetchone()['c']
     if users_count == 0:

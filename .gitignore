@@ -10,3 +10,6 @@ instance/
 *.log
 *.tmp
 *:Zone.Identifier
+output/
+.localdeps/
+*.deb
