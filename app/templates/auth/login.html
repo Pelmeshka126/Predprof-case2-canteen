@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}Вход{% endblock %}
+{% block content %}
+<div class="card" style="max-width:520px;margin:0 auto;">
+  <h2>Вход</h2>
+  <form method="post">
+    <label>Email</label>
+    <input type="email" name="email" required>
+    <label>Пароль</label>
+    <input type="password" name="password" required>
+    <button type="submit">Войти</button>
+  </form>
+  <p><small>Демо-аккаунты: admin@predprof.local/admin123, cook@predprof.local/cook123, student@predprof.local/student123</small></p>
+  <p><a href="{{ url_for('auth.register') }}">Нет аккаунта? Регистрация</a></p>
+</div>
+{% endblock %}

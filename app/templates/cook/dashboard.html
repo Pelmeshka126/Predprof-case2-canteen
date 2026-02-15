@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Кабинет повара{% endblock %}
+{% block content %}
+<h1>Кабинет повара</h1>
+<div class="grid grid-2">
+  <div class="card">
+    <h3>Учет выдачи блюд и контроль остатков</h3>
+    <form method="post" action="{{ url_for('routes.cook_issue') }}">
+      <label>Блюдо</label>
+      <select name="menu_item_id">
+        {% for item in menu_items %}
+        <option value="{{ item['id'] }}">{{ item['title'] }} (остаток {{ item['available_qty'] }})</option>
+        {% endfor %}
+      </select>
+      <label>Продукт со склада</label>
+      <select name="inventory_id">
+        {% for inv in inventory %}
+        <option value="{{ inv['id'] }}">{{ inv['product_name'] }} ({{ inv['qty'] }} {{ inv['unit'] }})</option>
+        {% endfor %}
+      </select>
+      <label>Количество выданных порций</label>
+      <input type="number" name="issued_qty" value="1" min="1" required>
+      <label>Комментарий</label>
+      <input name="issue_note" placeholder="например: обед 7Б">
+      <button type="submit">Зафиксировать выдачу</button>
+    </form>
+    <h3>История выдачи</h3>
+    <table>
+      <tr><th>Дата</th><th>Блюдо</th><th>Кол-во</th><th>Комментарий</th></tr>
+      {% for row in issues %}
+      <tr><td>{{ row['issued_at'] }}</td><td>{{ row['title'] }}</td><td>{{ row['issued_qty'] }}</td><td>{{ row['issue_note'] }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+
+  <div class="card">
+    <h3>Заявка на закупку</h3>
+    <form method="post" action="{{ url_for('routes.cook_purchase_request') }}">
+      <label>Название продукта</label>
+      <input name="product_name" required>
+      <label>Количество</label>
+      <input type="number" step="0.1" name="qty" min="0.1" required>
+      <label>Обоснование</label>
+      <textarea name="reason" rows="3" required></textarea>
+      <button type="submit">Отправить заявку</button>
+    </form>
+    <h3>Мои/общие заявки</h3>
+    <table>
+      <tr><th>Дата</th><th>Повар</th><th>Продукт</th><th>Кол-во</th><th>Статус</th></tr>
+      {% for r in requests %}
+      <tr><td>{{ r['created_at'] }}</td><td>{{ r['cook_name'] }}</td><td>{{ r['product_name'] }}</td><td>{{ r['qty'] }}</td><td>{{ r['status'] }}</td></tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Склад</h3>
+  <table>
+    <tr><th>Продукт</th><th>Остаток</th><th>Ед.</th></tr>
+    {% for inv in inventory %}
+    <tr><td>{{ inv['product_name'] }}</td><td>{{ inv['qty'] }}</td><td>{{ inv['unit'] }}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}

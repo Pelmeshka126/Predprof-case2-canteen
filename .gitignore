@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+.env
+*.db
+instance/
+.DS_Store
+*.log
+*.tmp
+*:Zone.Identifier

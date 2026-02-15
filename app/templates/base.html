@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}Predprof Case 2{% endblock %}</title>
+  <style>
+    :root {
+      --bg: #f5f7fb;
+      --card: #ffffff;
+      --text: #1c1f2b;
+      --muted: #667085;
+      --accent: #0b57d0;
+      --ok: #1b8755;
+      --warn: #b54708;
+      --err: #b42318;
+      --border: #dfe3eb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", Tahoma, sans-serif;
+      background: linear-gradient(180deg, #eef2ff 0%, var(--bg) 40%);
+      color: var(--text);
+    }
+    .container { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    .nav {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-bottom: 14px;
+    }
+    .nav a { color: var(--accent); text-decoration: none; }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px;
+      margin-bottom: 12px;
+      box-shadow: 0 2px 8px rgba(16, 24, 40, 0.04);
+    }
+    .grid { display: grid; gap: 12px; }
+    .grid-2 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+    h1, h2, h3 { margin: 6px 0 10px; }
+    p { margin: 6px 0; }
+    small { color: var(--muted); }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid var(--border); padding: 8px; text-align: left; font-size: 14px; }
+    form { display: grid; gap: 8px; }
+    input, select, textarea, button {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font-size: 14px;
+      width: 100%;
+    }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      cursor: pointer;
+    }
+    .btn-secondary { background: #475467; }
+    .btn-danger { background: var(--err); }
+    .flash {
+      padding: 10px;
+      border-radius: 8px;
+      background: #eef4ff;
+      border: 1px solid #bfd3ff;
+      margin-bottom: 10px;
+    }
+    @media (max-width: 600px) {
+      .nav { flex-direction: column; align-items: flex-start; }
+      table, thead, tbody, tr, td, th { font-size: 12px; }
+    }
+  </style>
+</head>
+<body>
+<div class="container">
+  <div class="nav">
+    <div>
+      <strong>Predprof IT • Кейс №2</strong>
+      {% if current_user %}
+        <small> | {{ current_user['name'] }} ({{ current_user['role'] }})</small>
+      {% endif %}
+    </div>
+    <div>
+      {% if current_user %}
+        <a href="{{ url_for('routes.index') }}">Главная</a>
+        <a href="{{ url_for('auth.logout') }}" style="margin-left: 10px;">Выйти</a>
+      {% else %}
+        <a href="{{ url_for('auth.login') }}">Войти</a>
+      {% endif %}
+    </div>
+  </div>
+
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      {% for message in messages %}
+        <div class="flash">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  {% block content %}{% endblock %}
+</div>
+</body>
+</html>

@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Кабинет администратора{% endblock %}
+{% block content %}
+<h1>Кабинет администратора</h1>
+<div class="grid grid-2">
+  <div class="card">
+    <h3>Сводная статистика</h3>
+    <p><strong>Оплачено всего:</strong> {{ total_payments }}</p>
+    <p><strong>Отметок получения питания:</strong> {{ total_claims }}</p>
+    <p><strong>Выдано порций поваром:</strong> {{ total_issues }}</p>
+  </div>
+
+  <div class="card">
+    <h3>Согласование заявок на закупку</h3>
+    <table>
+      <tr><th>Дата</th><th>Повар</th><th>Продукт</th><th>Кол-во</th><th>Причина</th><th>Статус</th><th>Действия</th></tr>
+      {% for r in pending %}
+      <tr>
+        <td>{{ r['created_at'] }}</td>
+        <td>{{ r['cook_name'] }}</td>
+        <td>{{ r['product_name'] }}</td>
+        <td>{{ r['qty'] }}</td>
+        <td>{{ r['reason'] }}</td>
+        <td>{{ r['status'] }}</td>
+        <td>
+          <form method="post" action="{{ url_for('routes.admin_update_request', request_id=r['id']) }}">
+            <input type="hidden" name="status" value="approved">
+            <button type="submit">Одобрить</button>
+          </form>
+          <form method="post" action="{{ url_for('routes.admin_update_request', request_id=r['id']) }}">
+            <input type="hidden" name="status" value="rejected">
+            <button class="btn-danger" type="submit">Отклонить</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Отчет по питанию и затратам</h3>
+  <table>
+    <tr><th>Блюдо</th><th>Тип</th><th>Кол-во получений</th><th>Средняя оценка</th></tr>
+    {% for row in report_rows %}
+    <tr>
+      <td>{{ row['title'] }}</td>
+      <td>{{ row['meal_type'] }}</td>
+      <td>{{ row['claims_count'] }}</td>
+      <td>{{ '%.2f'|format(row['avg_rating']) }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endblock %}
