@@ -3,39 +3,56 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>{% block title %}Predprof Case 2{% endblock %}</title>
+  <title>{% block title %}Система управления столовой{% endblock %}</title>
   <style>
     :root {
-      --bg: #f5f7fb;
+      --bg: #f4f7fb;
       --card: #ffffff;
-      --text: #1c1f2b;
+      --text: #1d2433;
       --muted: #667085;
       --accent: #0b57d0;
-      --ok: #1b8755;
-      --warn: #b54708;
+      --accent-2: #0e7a6d;
       --err: #b42318;
-      --border: #dfe3eb;
+      --border: #d9e0ea;
+      --head: #f6f8fc;
     }
     * { box-sizing: border-box; }
     body {
       margin: 0;
       font-family: "Segoe UI", Tahoma, sans-serif;
-      background: linear-gradient(180deg, #eef2ff 0%, var(--bg) 40%);
       color: var(--text);
+      background:
+        radial-gradient(circle at 5% 0%, #dce8ff 0%, rgba(220,232,255,0) 34%),
+        radial-gradient(circle at 95% 0%, #d9f4ec 0%, rgba(217,244,236,0) 30%),
+        var(--bg);
     }
-    .container { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    .container {
+      max-width: 1240px;
+      margin: 0 auto;
+      padding: 16px;
+    }
     .nav {
       display: flex;
       justify-content: space-between;
       align-items: center;
-      gap: 10px;
+      gap: 12px;
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 12px;
       padding: 12px 14px;
       margin-bottom: 14px;
     }
-    .nav a { color: var(--accent); text-decoration: none; }
+    .nav a {
+      color: var(--accent);
+      text-decoration: none;
+      font-weight: 600;
+    }
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
     .card {
       background: var(--card);
       border: 1px solid var(--border);
@@ -43,54 +60,68 @@
       padding: 14px;
       margin-bottom: 12px;
       box-shadow: 0 2px 8px rgba(16, 24, 40, 0.04);
+      overflow: hidden;
     }
-    .grid { display: grid; gap: 12px; }
-    .grid-2 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
-    h1, h2, h3 { margin: 6px 0 10px; }
+    .grid {
+      display: grid;
+      gap: 12px;
+      align-items: start;
+    }
+    .grid-2 {
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    }
+    h1, h2, h3 { margin: 4px 0 10px; }
     p { margin: 6px 0; }
     small { color: var(--muted); }
-    table { width: 100%; border-collapse: collapse; }
-    th, td { border: 1px solid var(--border); padding: 8px; text-align: left; font-size: 14px; }
-    .table-wrap {
-      width: 100%;
-      overflow-x: auto;
-      overflow-y: auto;
-      max-height: 420px;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      background: #fff;
-    }
-    .table-wrap table {
-      margin: 0;
-      min-width: 760px;
-      table-layout: fixed;
-    }
-    .table-wrap th, .table-wrap td {
-      white-space: normal;
-      word-break: break-word;
-      overflow-wrap: anywhere;
-      vertical-align: top;
-    }
-    .table-wrap--wide table { min-width: 980px; }
+
     form { display: grid; gap: 8px; }
-    .inline-form { display: inline-block; width: auto; margin: 0; }
-    .inline-form button { width: auto; min-width: 90px; }
-    .actions-stack { display: grid; gap: 6px; }
+    .inline-form {
+      display: block;
+      margin: 0;
+      width: 100%;
+    }
+    .actions-stack {
+      display: grid;
+      gap: 6px;
+      min-width: 140px;
+    }
+    .toolbar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: end;
+    }
+    .toolbar > * {
+      flex: 1 1 180px;
+      min-width: 150px;
+    }
+
     input, select, textarea, button {
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 8px 10px;
+      padding: 9px 10px;
       font-size: 14px;
       width: 100%;
+      max-width: 100%;
+      font-family: inherit;
+      line-height: 1.3;
+    }
+    textarea {
+      resize: vertical;
+      min-height: 78px;
     }
     button {
       background: var(--accent);
       color: #fff;
       border: none;
       cursor: pointer;
+      font-weight: 600;
+      min-height: 38px;
     }
-    .btn-secondary { background: #475467; }
+    .btn-secondary { background: #4b5565; }
+    .btn-success { background: var(--accent-2); }
     .btn-danger { background: var(--err); }
+
     .flash {
       padding: 10px;
       border-radius: 8px;
@@ -98,12 +129,59 @@
       border: 1px solid #bfd3ff;
       margin-bottom: 10px;
     }
+
+    .table-wrap {
+      width: 100%;
+      overflow-x: auto;
+      overflow-y: auto;
+      max-height: 440px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: #fff;
+    }
+    .table-wrap table {
+      width: 100%;
+      margin: 0;
+      min-width: 760px;
+      border-collapse: collapse;
+      table-layout: fixed;
+    }
+    .table-wrap--wide table {
+      min-width: 1040px;
+    }
+    th, td {
+      border: 1px solid var(--border);
+      padding: 8px;
+      text-align: left;
+      font-size: 14px;
+      vertical-align: top;
+      white-space: normal;
+      word-break: break-word;
+      overflow-wrap: anywhere;
+    }
+    thead th {
+      position: sticky;
+      top: 0;
+      background: var(--head);
+      z-index: 2;
+    }
+
+    .mono {
+      font-family: "Consolas", "Courier New", monospace;
+      font-size: 13px;
+    }
+
+    @media (max-width: 900px) {
+      .container { padding: 12px; }
+      .grid-2 { grid-template-columns: 1fr; }
+      .table-wrap table { min-width: 660px; }
+      .table-wrap--wide table { min-width: 900px; }
+    }
     @media (max-width: 600px) {
       .nav { flex-direction: column; align-items: flex-start; }
-      table, thead, tbody, tr, td, th { font-size: 12px; }
-      .table-wrap table { min-width: 640px; }
-      .table-wrap--wide table { min-width: 860px; }
+      .nav-links { width: 100%; }
       .table-wrap { max-height: 360px; }
+      th, td { font-size: 12px; }
     }
   </style>
 </head>
@@ -111,15 +189,15 @@
 <div class="container">
   <div class="nav">
     <div>
-      <strong>Predprof IT • Кейс №2</strong>
+      <strong>Предпроф ИТ • Кейс №2 «Управление столовой»</strong>
       {% if current_user %}
-        <small> | {{ current_user['name'] }} ({{ current_user['role'] }})</small>
+        <small> | {{ current_user['name'] }} ({{ role_labels.get(current_user['role'], current_user['role']) }})</small>
       {% endif %}
     </div>
-    <div>
+    <div class="nav-links">
       {% if current_user %}
         <a href="{{ url_for('routes.index') }}">Главная</a>
-        <a href="{{ url_for('auth.logout') }}" style="margin-left: 10px;">Выйти</a>
+        <a href="{{ url_for('auth.logout') }}">Выйти</a>
       {% else %}
         <a href="{{ url_for('auth.login') }}">Войти</a>
       {% endif %}

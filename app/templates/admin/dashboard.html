@@ -2,10 +2,30 @@
 {% block title %}Кабинет администратора{% endblock %}
 {% block content %}
 <h1>Кабинет администратора</h1>
+
 <div class="card">
+  <h3>Параметры отчета</h3>
+  <form method="get" action="{{ url_for('routes.admin_dashboard') }}">
+    <div class="toolbar">
+      <div>
+        <label>Период с</label>
+        <input type="date" name="date_from" value="{{ period_from }}">
+      </div>
+      <div>
+        <label>Период по</label>
+        <input type="date" name="date_to" value="{{ period_to }}">
+      </div>
+      <div>
+        <button type="submit" class="btn-success">Применить период</button>
+      </div>
+    </div>
+  </form>
   <p><strong>Отчет сформирован:</strong> {{ report_generated_at }}</p>
-  <div class="actions-stack" style="max-width:320px;">
+  <p><strong>Период:</strong> {{ period_from_display }} — {{ period_to_display }}</p>
+  <div class="toolbar" style="margin-top: 8px;">
     <form method="get" action="{{ url_for('routes.admin_report_csv') }}">
+      <input type="hidden" name="date_from" value="{{ period_from }}">
+      <input type="hidden" name="date_to" value="{{ period_to }}">
       <button type="submit">Скачать отчет CSV</button>
     </form>
     <form method="get" action="{{ url_for('routes.admin_users') }}">
@@ -13,9 +33,10 @@
     </form>
   </div>
 </div>
+
 <div class="grid grid-2">
   <div class="card">
-    <h3>Сводная статистика</h3>
+    <h3>Сводная статистика за период</h3>
     <p><strong>Оплачено всего:</strong> {{ total_payments }}</p>
     <p><strong>Отметок получения питания:</strong> {{ total_claims }}</p>
     <p><strong>Уникальных учеников с отметкой:</strong> {{ unique_students_with_claims }}</p>
@@ -29,17 +50,20 @@
     <h3>Согласование заявок на закупку</h3>
     <div class="table-wrap table-wrap--wide">
       <table>
-        <tr><th>Дата</th><th>Повар</th><th>Продукт</th><th>Кол-во</th><th>Цена/ед.</th><th>Сумма</th><th>Причина</th><th>Статус</th><th>Действия</th></tr>
+        <thead>
+          <tr><th>Дата</th><th>Повар</th><th>Продукт</th><th>Кол-во</th><th>Цена/ед.</th><th>Сумма</th><th>Причина</th><th>Статус</th><th>Действия</th></tr>
+        </thead>
+        <tbody>
         {% for r in purchase_requests %}
         <tr>
-          <td>{{ r['created_at'] }}</td>
+          <td>{{ r['created_at_display'] }}</td>
           <td>{{ r['cook_name'] }}</td>
           <td>{{ r['product_name'] }}</td>
           <td>{{ r['qty_display'] }}</td>
           <td>{{ r['unit_price_display'] }}</td>
           <td>{{ r['total_display'] }}</td>
           <td>{{ r['reason'] }}</td>
-          <td>{{ r['status'] }}</td>
+          <td>{{ r['status_label'] }}</td>
           <td>
             <div class="actions-stack">
               <form class="inline-form" method="post" action="{{ url_for('routes.admin_update_request', request_id=r['id']) }}">
@@ -56,6 +80,7 @@
           </td>
         </tr>
         {% endfor %}
+        </tbody>
       </table>
     </div>
   </div>
@@ -63,32 +88,58 @@
 
 <div class="card">
   <h3>Отчет по питанию и затратам</h3>
-  <div class="table-wrap">
+  <div class="table-wrap table-wrap--wide">
     <table>
-      <tr><th>Блюдо</th><th>Тип</th><th>Кол-во получений</th><th>Кол-во выдач</th><th>Средняя оценка</th></tr>
+      <thead><tr><th>Дата</th><th>Блюдо</th><th>Тип</th><th>Кол-во получений</th><th>Кол-во выдач</th><th>Средняя оценка</th></tr></thead>
+      <tbody>
       {% for row in report_rows %}
       <tr>
+        <td>{{ row['date_display'] }}</td>
         <td>{{ row['title'] }}</td>
-        <td>{{ row['meal_type'] }}</td>
+        <td>{{ row['meal_type_label'] }}</td>
         <td>{{ row['claims_count'] }}</td>
         <td>{{ row['issued_count'] }}</td>
-        <td>{{ '%.2f'|format(row['avg_rating']) }}</td>
+        <td>{{ row['avg_rating_display'] }}</td>
       </tr>
       {% endfor %}
+      </tbody>
     </table>
   </div>
 
   <h3>Сводка по типам питания</h3>
   <div class="table-wrap">
     <table>
-      <tr><th>Тип</th><th>Получений</th><th>Выдач</th></tr>
+      <thead><tr><th>Тип</th><th>Получений</th><th>Выдач</th></tr></thead>
+      <tbody>
       {% for row in meal_type_rows %}
       <tr>
-        <td>{{ 'Завтрак' if row['meal_type'] == 'breakfast' else 'Обед' }}</td>
+        <td>{{ row['meal_type_label'] }}</td>
         <td>{{ row['total_claims'] }}</td>
         <td>{{ row['total_issues'] }}</td>
       </tr>
       {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h3>Последние действия администратора</h3>
+  <div class="table-wrap table-wrap--wide">
+    <table>
+      <thead><tr><th>Дата</th><th>Администратор</th><th>Действие</th><th>Объект</th><th>ID</th><th>Детали</th></tr></thead>
+      <tbody>
+      {% for a in admin_actions %}
+      <tr>
+        <td>{{ a['created_at_display'] }}</td>
+        <td>{{ a['admin_name'] }}</td>
+        <td>{{ a['action_label'] }}</td>
+        <td>{{ a['target_type_label'] }}</td>
+        <td>{{ a['target_id'] }}</td>
+        <td class="mono">{{ a['details_pretty'] }}</td>
+      </tr>
+      {% endfor %}
+      </tbody>
     </table>
   </div>
 </div>
